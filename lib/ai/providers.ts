@@ -3,7 +3,7 @@ import {
   extractReasoningMiddleware,
   wrapLanguageModel,
 } from 'ai';
-import { xai } from '@ai-sdk/xai';
+import { openai } from '@ai-sdk/openai';
 import { isTestEnvironment } from '../constants';
 import {
   artifactModel,
@@ -11,6 +11,8 @@ import {
   reasoningModel,
   titleModel,
 } from './models.test';
+
+export const gpt4o = openai('gpt-4o-2024-08-06');
 
 export const myProvider = isTestEnvironment
   ? customProvider({
@@ -23,15 +25,12 @@ export const myProvider = isTestEnvironment
     })
   : customProvider({
       languageModels: {
-        'chat-model': xai('grok-2-vision-1212'),
+        'chat-model': gpt4o,
         'chat-model-reasoning': wrapLanguageModel({
-          model: xai('grok-3-mini-beta'),
+          model: gpt4o,
           middleware: extractReasoningMiddleware({ tagName: 'think' }),
         }),
-        'title-model': xai('grok-2-1212'),
-        'artifact-model': xai('grok-2-1212'),
-      },
-      imageModels: {
-        'small-model': xai.image('grok-2-image'),
+        'title-model': gpt4o,
+        'artifact-model': gpt4o,
       },
     });
