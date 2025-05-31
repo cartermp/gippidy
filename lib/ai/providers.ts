@@ -12,7 +12,9 @@ import {
   titleModel,
 } from './models.test';
 
-export const gpt4o = openai('gpt-4o-2024-08-06');
+export const gpt4o = openai('gpt-4o');
+export const gpt41 = openai('gpt-4.1');
+export const o4mini = openai('o4-mini');
 
 export const myProvider = isTestEnvironment
   ? customProvider({
@@ -25,12 +27,12 @@ export const myProvider = isTestEnvironment
     })
   : customProvider({
       languageModels: {
-        'chat-model': gpt4o,
+        'chat-model': gpt41,
         'chat-model-reasoning': wrapLanguageModel({
-          model: gpt4o,
+          model: o4mini,
           middleware: extractReasoningMiddleware({ tagName: 'think' }),
         }),
-        'title-model': gpt4o,
-        'artifact-model': gpt4o,
+        'title-model': gpt41,
+        'artifact-model': gpt41,
       },
     });
