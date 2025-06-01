@@ -7,6 +7,7 @@ import { PlusIcon } from '@/components/icons';
 import { SidebarHistory } from '@/components/sidebar-history';
 import { SidebarUserNav } from '@/components/sidebar-user-nav';
 import { Button } from '@/components/ui/button';
+import { CatButtholeIcon } from '@/components/cat-butthole-icon';
 import {
   Sidebar,
   SidebarContent,
@@ -34,6 +35,9 @@ export function AppSidebar({ user }: { user: User | undefined }) {
               }}
               className="flex flex-row gap-3 items-center"
             >
+              <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <CatButtholeIcon size={20} />
+              </div>
               <span className="text-lg font-semibold px-2 hover:bg-muted rounded-md cursor-pointer">
                 ChatGippidy
               </span>

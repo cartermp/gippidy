@@ -3,51 +3,7 @@
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-
-// Artistic representation of a cat's posterior
-const CatButtholeIcon = () => {
-  return (
-    <svg
-      width="120"
-      height="120"
-      viewBox="0 0 120 120"
-      className="text-pink-400"
-    >
-      {/* Outer fur circle */}
-      <circle
-        cx="60"
-        cy="60"
-        r="50"
-        fill="#8B4513"
-        stroke="#654321"
-        strokeWidth="2"
-      />
-      {/* Inner pink area */}
-      <circle
-        cx="60"
-        cy="60"
-        r="35"
-        fill="#FFB6C1"
-        stroke="#FF69B4"
-        strokeWidth="1"
-      />
-      {/* The infamous asterisk pattern */}
-      <g
-        transform="translate(60, 60)"
-        stroke="#8B0000"
-        strokeWidth="3"
-        fill="none"
-      >
-        <line x1="-15" y1="0" x2="15" y2="0" />
-        <line x1="-10.6" y1="-10.6" x2="10.6" y2="10.6" />
-        <line x1="0" y1="-15" x2="0" y2="15" />
-        <line x1="-10.6" y1="10.6" x2="10.6" y2="-10.6" />
-      </g>
-      {/* Center dot */}
-      <circle cx="60" cy="60" r="3" fill="#8B0000" />
-    </svg>
-  );
-};
+import { CatButtholeIcon } from '@/components/cat-butthole-icon';
 
 export default function AuthErrorPage() {
   const router = useRouter();
@@ -66,7 +22,7 @@ export default function AuthErrorPage() {
           }}
           className="mb-8 flex justify-center"
         >
-          <CatButtholeIcon />
+          <CatButtholeIcon size={120} />
         </motion.div>
 
         <motion.div

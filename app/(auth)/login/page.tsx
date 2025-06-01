@@ -3,7 +3,7 @@
 import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
-import { BotIcon } from '@/components/icons';
+import { CatButtholeIcon } from '@/components/cat-butthole-icon';
 
 export default function Page() {
   const handleGoogleSignIn = () => {
@@ -22,7 +22,7 @@ export default function Page() {
         >
           <div className="flex items-center gap-3 mb-8">
             <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-              <BotIcon />
+              <CatButtholeIcon size={32} />
             </div>
             <h1 className="text-2xl font-bold tracking-tight">Chat Gippidy</h1>
           </div>
@@ -65,7 +65,7 @@ export default function Page() {
           <div className="lg:hidden mb-8 text-center">
             <div className="flex items-center justify-center gap-3 mb-4">
               <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                <BotIcon />
+                <CatButtholeIcon size={24} />
               </div>
               <h1 className="text-xl font-bold tracking-tight">Chat Gippidy</h1>
             </div>

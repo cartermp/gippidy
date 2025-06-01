@@ -9,7 +9,11 @@ import { SessionProvider } from 'next-auth/react';
 export const metadata: Metadata = {
   metadataBase: new URL('https://chat.vercel.ai'),
   title: 'ChatGippidy',
-  description: "Phillip Carter's Chatbot website.",
+  description: "Phillip Carter's AI Assistant with Interactive Features",
+  icons: {
+    icon: '/icon',
+    apple: '/apple-icon',
+  },
 };
 
 export const viewport = {
