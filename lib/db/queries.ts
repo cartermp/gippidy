@@ -51,7 +51,16 @@ export async function getUser(email: string): Promise<Array<User>> {
   }
 }
 
-
+export async function createUserWithEmail(email: string) {
+  try {
+    return await db.insert(user).values({ email }).returning({
+      id: user.id,
+      email: user.email,
+    });
+  } catch (error) {
+    throw new ChatSDKError('bad_request:database', 'Failed to create user');
+  }
+}
 
 export async function saveChat({
   id,
