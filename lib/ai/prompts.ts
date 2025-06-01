@@ -50,6 +50,20 @@ About the origin of user's request:
 - country: ${requestHints.country}
 `;
 
+const reasoningPrompt = `
+You are a friendly assistant with advanced reasoning capabilities! Keep your responses concise and helpful.
+
+When you need to think through complex problems, show your reasoning step-by-step before giving your final answer.
+
+Example:
+Let me think about this step by step:
+1. First I need to understand what the user is asking
+2. Then I should consider the various approaches  
+3. Finally I'll choose the best solution
+
+Based on my reasoning, here's my response...
+`;
+
 export const systemPrompt = ({
   selectedChatModel,
   requestHints,
@@ -60,7 +74,7 @@ export const systemPrompt = ({
   const requestPrompt = getRequestPromptFromHints(requestHints);
 
   if (selectedChatModel === 'chat-model-reasoning') {
-    return `${regularPrompt}\n\n${requestPrompt}`;
+    return `${reasoningPrompt}\n\n${requestPrompt}\n\n${artifactsPrompt}`;
   } else {
     return `${regularPrompt}\n\n${requestPrompt}\n\n${artifactsPrompt}`;
   }

@@ -1,7 +1,5 @@
 import {
   customProvider,
-  extractReasoningMiddleware,
-  wrapLanguageModel,
 } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { isTestEnvironment } from '../constants';
@@ -28,10 +26,7 @@ export const myProvider = isTestEnvironment
   : customProvider({
       languageModels: {
         'chat-model': gpt41,
-        'chat-model-reasoning': wrapLanguageModel({
-          model: o4mini,
-          middleware: extractReasoningMiddleware({ tagName: 'think' }),
-        }),
+        'chat-model-reasoning': gpt41,
         'title-model': gpt41,
         'artifact-model': gpt41,
       },
