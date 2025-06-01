@@ -54,7 +54,7 @@ Interactive content creation with client-server architecture:
 
 ### Authentication
 
-NextAuth.js 5.0 beta with credential provider and guest user support. Guest users can be converted to registered users. Sessions use JWT with custom user type extensions.
+NextAuth.js 5.0 beta with Google OAuth provider only. All users must authenticate via Google account. Email restriction enforced via ALLOWED_EMAIL environment variable.
 
 ## Development Guidelines
 
