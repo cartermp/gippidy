@@ -13,7 +13,21 @@ export async function middleware(request: NextRequest) {
     return new Response('pong', { status: 200 });
   }
 
+  // Allow NextAuth API routes
   if (pathname.startsWith('/api/auth')) {
+    return NextResponse.next();
+  }
+
+  // Allow login and register pages (no auth required)
+  if (['/login', '/register'].includes(pathname)) {
+    return NextResponse.next();
+  }
+
+  // Allow public assets
+  if (pathname.startsWith('/_next') || 
+      pathname.startsWith('/favicon.ico') || 
+      pathname.startsWith('/sitemap.xml') || 
+      pathname.startsWith('/robots.txt')) {
     return NextResponse.next();
   }
 
@@ -23,12 +37,9 @@ export async function middleware(request: NextRequest) {
     secureCookie: !isDevelopmentEnvironment,
   });
 
-  if (!token) {
+  // Redirect to login if no token OR if it's an old guest user token
+  if (!token || (token.email?.toString().startsWith('guest-'))) {
     return NextResponse.redirect(new URL('/login', request.url));
-  }
-
-  if (token && ['/login', '/register'].includes(pathname)) {
-    return NextResponse.redirect(new URL('/', request.url));
   }
 
   return NextResponse.next();
@@ -36,18 +47,13 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/',
-    '/chat/:id',
-    '/api/:path*',
-    '/login',
-    '/register',
-
     /*
      * Match all request paths except for the ones starting with:
+     * - api/auth (NextAuth routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico, sitemap.xml, robots.txt (metadata files)
      */
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
+    '/((?!api/auth|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
   ],
 };
