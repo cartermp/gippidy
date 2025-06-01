@@ -18,8 +18,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Allow login and register pages (no auth required)
-  if (['/login', '/register'].includes(pathname)) {
+  // Allow auth pages (no auth required)
+  if (['/login', '/register', '/auth-error'].includes(pathname)) {
     return NextResponse.next();
   }
 
