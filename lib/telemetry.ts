@@ -1,4 +1,4 @@
-import {SpanStatusCode, trace, Span} from '@opentelemetry/api';
+import {SpanStatusCode, trace, type Span} from '@opentelemetry/api';
 
 const tracer = trace.getTracer('gippidy');
 

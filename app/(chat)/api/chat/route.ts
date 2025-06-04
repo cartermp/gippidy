@@ -36,7 +36,7 @@ import { after } from 'next/server';
 import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
-import { createChatSpan, createAISpan, recordError } from '@/lib/telemetry';
+import { createChatSpan, recordError } from '@/lib/telemetry';
 
 export const maxDuration = 60;
 
