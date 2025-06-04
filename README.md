@@ -30,6 +30,7 @@ graph TB
         AuthService[Auth Integration]
         ArtifactService[Artifact Handlers]
         StreamService[Real-time Streams]
+        Telemetry[OpenTelemetry]
     end
 
     subgraph "Data Layer"
@@ -42,6 +43,7 @@ graph TB
         OpenAI[OpenAI API]
         Models["GPT-4.1/4o Models"]
         Google["Google Auth"]
+        Honeycomb["Honeycomb"]
     end
 
     %% Client to API connections
@@ -55,9 +57,13 @@ graph TB
     %% API to Service connections
     ChatAPI --> AIService
     ChatAPI --> StreamService
+    ChatAPI --> Telemetry
     AuthAPI --> AuthService
+    AuthAPI --> Telemetry
     DocAPI --> ArtifactService
+    DocAPI --> Telemetry
     FileAPI --> BlobStorage
+    FileAPI --> Telemetry
 
     %% Service to Data connections
     AIService --> OpenAI
@@ -66,6 +72,7 @@ graph TB
     ArtifactService --> DB
     StreamService --> Cache
     StreamService --> DB
+    Telemetry --> Honeycomb
 
     %% Data flow arrows
     AIService -.->|Tool Calls| ArtifactService
@@ -138,11 +145,14 @@ graph TB
 - **Backend**: Next.js API routes, Server Actions, NextAuth.js
 - **Database**: PostgreSQL with Drizzle ORM and migrations
 - **AI**: Vercel AI SDK with OpenAI GPT-4.1/4o/o4-mini models
+- **Observability**: OpenTelemetry data, sent to Honeycomb
 - **Storage**: Vercel Blob for file uploads, Redis for caching
 - **Testing**: Playwright for E2E testing with Page Object Model
 - **Code Quality**: Biome for linting and formatting
 
 TODOs:
 
+
 - support reasoning models including reasoning steps?
-- better logging for chat flows and shit
+- good instrumentation, not just autoinstrumentation
+- Projects support
