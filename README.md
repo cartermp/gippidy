@@ -152,8 +152,6 @@ graph TB
 
 TODOs:
 
-
-- solve why prod doesn't send
 - support reasoning models including reasoning steps?
 - good instrumentation, not just autoinstrumentation
 - Projects support
