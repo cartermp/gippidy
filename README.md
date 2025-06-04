@@ -27,7 +27,7 @@ graph TB
 
     subgraph "Service Layer"
         AIService[AI Integration]
-        AuthService[NextAuth.js]
+        AuthService[Auth Integration]
         ArtifactService[Artifact Handlers]
         StreamService[Real-time Streams]
     end
@@ -41,6 +41,7 @@ graph TB
     subgraph "External Services"
         OpenAI[OpenAI API]
         Models["GPT-4.1/4o Models"]
+        Google["Google Auth"]
     end
 
     %% Client to API connections
@@ -61,7 +62,7 @@ graph TB
     %% Service to Data connections
     AIService --> OpenAI
     AIService --> Models
-    AuthService --> DB
+    AuthService --> Google
     ArtifactService --> DB
     StreamService --> Cache
     StreamService --> DB
@@ -146,6 +147,5 @@ graph TB
 
 TODOs:
 
-- get auth done
 - support reasoning models including reasoning steps?
 - better logging for chat flows and shit
