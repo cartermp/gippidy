@@ -152,6 +152,6 @@ graph TB
 
 TODOs:
 
-- support reasoning models including reasoning steps?
 - good instrumentation, not just autoinstrumentation
+- support reasoning models including reasoning steps?
 - Projects support

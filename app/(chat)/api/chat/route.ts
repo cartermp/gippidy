@@ -36,6 +36,7 @@ import { after } from 'next/server';
 import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
+import { createChatSpan, createAISpan, recordError } from '@/lib/telemetry';
 
 export const maxDuration = 60;
 
@@ -62,12 +63,16 @@ function getStreamContext() {
 }
 
 export async function POST(request: Request) {
+  const chatSpan = createChatSpan('app.ChatRequest');
+
   let requestBody: PostRequestBody;
 
   try {
     const json = await request.json();
     requestBody = postRequestBodySchema.parse(json);
-  } catch (_) {
+  } catch (error) {
+    recordError(chatSpan, new Error('Invalid request body'));
+    chatSpan.end();
     return new ChatSDKError('bad_request:api').toResponse();
   }
 
@@ -75,10 +80,21 @@ export async function POST(request: Request) {
     const { id, message, selectedChatModel, selectedVisibilityType } =
       requestBody;
 
+    // Set initial span attributes
+    chatSpan.setAttributes({
+      'app.chat.id': id,
+      'app.chat.model': selectedChatModel,
+      'app.chat.visibility': selectedVisibilityType,
+    });
+
     const session = await auth();
 
     if (!session?.user) {
-      return new ChatSDKError('unauthorized:chat').toResponse();
+      chatSpan.setAttribute('app.auth.unauthorized', true);
+      const err = new ChatSDKError('unauthorized:chat');
+      recordError(chatSpan, err)
+      chatSpan.end();
+      return err.toResponse();
     }
 
     const messageCount = await getMessageCountByUserId({
@@ -86,11 +102,28 @@ export async function POST(request: Request) {
       differenceInHours: 24,
     });
 
+    chatSpan.setAttributes({
+      'app.user.id': session.user.id,
+      'app.user.message_count_24h': messageCount,
+      'app.user.entitlement_limit': userEntitlements.maxMessagesPerDay,
+    });
+
     if (messageCount > userEntitlements.maxMessagesPerDay) {
+      chatSpan.setAttributes({
+        'app.user.is_rate_limited': true,
+        'app.user.message_count_24h': messageCount,
+        'app.user.entitlement_limit': userEntitlements.maxMessagesPerDay,
+      });
+      chatSpan.end();
       return new ChatSDKError('rate_limit:chat').toResponse();
     }
 
     const chat = await getChatById({ id });
+    const isNewChat = !chat;
+
+    chatSpan.setAttributes({
+      'app.chat.is_new_chat': isNewChat,
+    });
 
     if (!chat) {
       const title = await generateTitleFromUserMessage({
@@ -105,6 +138,10 @@ export async function POST(request: Request) {
       });
     } else {
       if (chat.userId !== session.user.id) {
+        chatSpan.setAttributes({
+          'app.auth.forbidden': true
+        })
+        chatSpan.end();
         return new ChatSDKError('forbidden:chat').toResponse();
       }
     }
@@ -142,70 +179,96 @@ export async function POST(request: Request) {
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
+    chatSpan.setAttributes({
+      'app.ai.tools.active': [
+        'getWeather',
+        'createDocument',
+        'updateDocument',
+        'requestSuggestions',
+      ],
+      'app.ai.response.streaming': true,
+      'app.stream.id': streamId,
+    });
+
     const stream = createDataStream({
       execute: (dataStream) => {
         const result = streamText({
-          model: myProvider.languageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
-          messages,
-          maxSteps: 5,
-          experimental_activeTools: [
-            'getWeather',
-            'createDocument', 
-            'updateDocument',
-            'requestSuggestions',
-          ],
-          experimental_transform: smoothStream({ chunking: 'word' }),
-          experimental_generateMessageId: generateUUID,
-          tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
-          },
-          onFinish: async ({ response }) => {
-            if (session.user?.id) {
-              try {
-                const assistantId = getTrailingMessageId({
-                  messages: response.messages.filter(
-                    (message) => message.role === 'assistant',
-                  ),
+            experimental_activeTools: [
+                'getWeather',
+                'createDocument',
+                'updateDocument',
+                'requestSuggestions',
+            ],
+            experimental_generateMessageId: generateUUID,
+            experimental_telemetry: {
+                isEnabled: isProductionEnvironment,
+                functionId: 'stream-text',
+            },
+            experimental_transform: smoothStream({chunking: 'word'}),
+            maxSteps: 5,
+            messages,
+            model: myProvider.languageModel(selectedChatModel),
+            onFinish: async ({response, usage, finishReason, toolCalls}) => {
+                // Record AI completion metrics
+                chatSpan.setAttributes({
+                    'app.ai.response.finish_reason': finishReason || 'unknown',
+                    'app.ai.response.tokens': usage?.totalTokens || 0,
+                    'app.ai.tools.called': toolCalls?.map(tc => tc.toolName) || [],
                 });
 
-                if (!assistantId) {
-                  throw new Error('No assistant message found!');
+                if (session.user?.id) {
+                    try {
+                        const assistantId = getTrailingMessageId({
+                            messages: response.messages.filter(
+                                (message) => message.role === 'assistant',
+                            ),
+                        });
+
+                        if (!assistantId) {
+                            throw new Error('No assistant message found!');
+                        }
+
+                        const [, assistantMessage] = appendResponseMessages({
+                            messages: [message],
+                            responseMessages: response.messages,
+                        });
+
+                        await saveMessages({
+                            messages: [
+                                {
+                                    id: assistantId,
+                                    chatId: id,
+                                    role: assistantMessage.role,
+                                    parts: assistantMessage.parts,
+                                    attachments:
+                                        assistantMessage.experimental_attachments ?? [],
+                                    createdAt: new Date(),
+                                },
+                            ],
+                        });
+
+                        chatSpan.setAttributes({
+                            'app.message.id': assistantId,
+                            'app.message.role': 'assistant',
+                        })
+                    } catch (error) {
+                        recordError(chatSpan, error as Error, {
+                            'error.context': 'save_assistant_message',
+                        });
+                        console.error('Failed to save chat');
+                    }
                 }
-
-                const [, assistantMessage] = appendResponseMessages({
-                  messages: [message],
-                  responseMessages: response.messages,
-                });
-
-                await saveMessages({
-                  messages: [
-                    {
-                      id: assistantId,
-                      chatId: id,
-                      role: assistantMessage.role,
-                      parts: assistantMessage.parts,
-                      attachments:
-                        assistantMessage.experimental_attachments ?? [],
-                      createdAt: new Date(),
-                    },
-                  ],
-                });
-              } catch (_) {
-                console.error('Failed to save chat');
-              }
-            }
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: 'stream-text',
-          },
+            },
+            system: systemPrompt({selectedChatModel, requestHints}),
+            tools: {
+                getWeather,
+                createDocument: createDocument({session, dataStream}),
+                updateDocument: updateDocument({session, dataStream}),
+                requestSuggestions: requestSuggestions({
+                    session,
+                    dataStream,
+                }),
+            },
         });
 
         result.consumeStream();
@@ -214,12 +277,22 @@ export async function POST(request: Request) {
           sendReasoning: true,
         });
       },
-      onError: () => {
+      onError: (error) => {
+        recordError(chatSpan, error as Error, {
+          'app.error.context': 'ai_streaming',
+        });
+        chatSpan.end();
         return 'Oops, an error occurred!';
       },
     });
 
     const streamContext = getStreamContext();
+
+    chatSpan.setAttributes({
+      'stream.resumable': !!streamContext,
+    })
+
+    chatSpan.end();
 
     if (streamContext) {
       return new Response(
@@ -229,9 +302,17 @@ export async function POST(request: Request) {
       return new Response(stream);
     }
   } catch (error) {
+    recordError(chatSpan, error as Error, {
+      'app.error.context': 'chat_request',
+      'app.chat.id': requestBody?.id || 'unknown',
+    });
+    chatSpan.end();
+
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }
+
+    return new ChatSDKError('internal_server_error:chat').toResponse();
   }
 }
 
