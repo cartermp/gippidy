@@ -95,10 +95,7 @@ graph TB
 ### Major Modules
 
 #### Authentication System (`app/(auth)/`)
-- **NextAuth.js Integration**: Credentials-based auth with guest user support
-- **User Management**: Registration, login, password hashing with bcrypt
-- **Guest Mode**: Automatic guest account creation for anonymous access
-- **Rate Limiting**: Different entitlements for guest vs registered users
+- **Google Auth:** sign in with Google, currently only supports me and only me
 
 #### Chat System (`app/(chat)/`)
 - **Message Management**: Storage, retrieval, and pagination of conversations
