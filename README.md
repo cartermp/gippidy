@@ -18,11 +18,11 @@ graph TB
     end
 
     subgraph "API Layer"
-        ChatAPI[/api/chat]
-        AuthAPI[/api/auth]
-        DocAPI[/api/document]
-        FileAPI[/api/files]
-        HistoryAPI[/api/history]
+        ChatAPI["/api/chat"]
+        AuthAPI["/api/auth"]
+        DocAPI["/api/document"]
+        FileAPI["/api/files"]
+        HistoryAPI["/api/history"]
     end
 
     subgraph "Service Layer"
@@ -40,7 +40,7 @@ graph TB
 
     subgraph "External Services"
         OpenAI[OpenAI API]
-        Models[GPT-4.1/4o/o4-mini]
+        Models["GPT-4.1/4o Models"]
     end
 
     %% Client to API connections
