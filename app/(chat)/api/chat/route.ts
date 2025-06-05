@@ -36,7 +36,11 @@ import { after } from 'next/server';
 import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
-import {createChatSpan, recordError, recordErrorOnCurrentSpan} from '@/lib/telemetry';
+import {
+  createChatSpan,
+  recordError,
+  recordErrorOnCurrentSpan,
+} from '@/lib/telemetry';
 
 export const maxDuration = 60;
 
@@ -55,7 +59,7 @@ function getStreamContext() {
         );
       } else {
         recordErrorOnCurrentSpan(error, {
-          'operation': 'stream_context_init',
+          operation: 'stream_context_init',
           'error.type': 'redis_connection',
         });
         console.error(error);
@@ -96,7 +100,7 @@ export async function POST(request: Request) {
     if (!session?.user) {
       chatSpan.setAttribute('app.auth.unauthorized', true);
       const err = new ChatSDKError('unauthorized:chat');
-      recordError(chatSpan, err)
+      recordError(chatSpan, err);
       chatSpan.end();
       return err.toResponse();
     }
@@ -143,8 +147,8 @@ export async function POST(request: Request) {
     } else {
       if (chat.userId !== session.user.id) {
         chatSpan.setAttributes({
-          'app.auth.forbidden': true
-        })
+          'app.auth.forbidden': true,
+        });
         chatSpan.end();
         return new ChatSDKError('forbidden:chat').toResponse();
       }
@@ -186,9 +190,9 @@ export async function POST(request: Request) {
     // Extract user message text from parts
     const userContent = message.parts || [];
     const userText = userContent
-        .filter(part => part.type === 'text')
-        .map(part => part.text)
-        .join(' ');
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join(' ');
 
     chatSpan.setAttributes({
       'app.ai.tools.active': [
@@ -200,111 +204,135 @@ export async function POST(request: Request) {
       'app.ai.response.streaming': true,
       'app.stream.id': streamId,
       'app.ai.model.input.messages_count': messages.length,
-      'app.ai.model.input.system_prompt': systemPrompt({ selectedChatModel, requestHints }),
+      'app.ai.model.input.system_prompt': systemPrompt({
+        selectedChatModel,
+        requestHints,
+      }),
       'app.ai.model.input.user_message': userText,
     });
 
     const stream = createDataStream({
       execute: (dataStream) => {
         const result = streamText({
-            experimental_activeTools: [
-                'getWeather',
-                'createDocument',
-                'updateDocument',
-                'requestSuggestions',
-            ],
-            experimental_generateMessageId: generateUUID,
-            experimental_telemetry: {
-                isEnabled: isProductionEnvironment,
-                functionId: 'stream-text',
-            },
-            experimental_transform: smoothStream({chunking: 'word'}),
-            maxSteps: 5,
-            messages,
-            model: myProvider.languageModel(selectedChatModel),
-            onFinish: async ({response, usage, finishReason, toolCalls}) => {
-                // Record AI completion metrics and full I/O
-                const assistantMessages = response.messages.filter(m => m.role === 'assistant');
-                const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+          experimental_activeTools: [
+            'getWeather',
+            'createDocument',
+            'updateDocument',
+            'requestSuggestions',
+          ],
+          experimental_generateMessageId: generateUUID,
+          experimental_telemetry: {
+            isEnabled: isProductionEnvironment,
+            functionId: 'stream-text',
+          },
+          experimental_transform: smoothStream({ chunking: 'word' }),
+          maxSteps: 5,
+          messages,
+          model: myProvider.languageModel(selectedChatModel),
+          onFinish: async ({ response, usage, finishReason, toolCalls }) => {
+            // Record AI completion metrics and full I/O
+            const assistantMessages = response.messages.filter(
+              (m) => m.role === 'assistant',
+            );
+            const lastAssistantMessage =
+              assistantMessages[assistantMessages.length - 1];
 
-                // Extract text content from parts
-                const responseContent = lastAssistantMessage?.content;
-                const responseText = typeof responseContent === 'string'
-                    ? responseContent
-                    : Array.isArray(responseContent)
-                        ? responseContent
-                            .filter(part => part.type === 'text')
-                            .map(part => part.text)
-                            .join(' ')
-                        : '';
+            // Extract text content from parts
+            const responseContent = lastAssistantMessage?.content;
+            const responseText =
+              typeof responseContent === 'string'
+                ? responseContent
+                : Array.isArray(responseContent)
+                  ? responseContent
+                      .filter((part) => part.type === 'text')
+                      .map((part) => part.text)
+                      .join(' ')
+                  : '';
 
-                chatSpan.setAttributes({
-                    'app.ai.response.finish_reason': finishReason || 'unknown',
-                    'app.ai.response.tokens.total': usage?.totalTokens || 0,
-                    'app.ai.response.tokens.prompt': usage?.promptTokens || 0,
-                    'app.ai.response.tokens.completion': usage?.completionTokens || 0,
-                    'app.ai.tools.called': toolCalls?.map(tc => tc.toolName) || [],
-                    'app.ai.tools.called_count': toolCalls?.length || 0,
-                    'app.ai.response.messages_count': assistantMessages.length,
-                    'app.ai.response.content': responseText,
+            // Check for reasoning content in response
+            const hasReasoning = response.messages.some(
+              (msg) =>
+                Array.isArray(msg.content) &&
+                msg.content.some((part) => part.type === 'reasoning'),
+            );
+
+            const reasoningParts = response.messages.flatMap((msg) =>
+              Array.isArray(msg.content)
+                ? msg.content.filter((part) => part.type === 'reasoning')
+                : [],
+            );
+
+            chatSpan.setAttributes({
+              'app.ai.response.finish_reason': finishReason || 'unknown',
+              'app.ai.response.tokens.total': usage?.totalTokens || 0,
+              'app.ai.response.tokens.prompt': usage?.promptTokens || 0,
+              'app.ai.response.tokens.completion': usage?.completionTokens || 0,
+              // TODO: Add reasoning tokens when supported by AI SDK
+              // 'app.ai.response.tokens.reasoning': usage?.reasoningTokens || 0,
+              'app.ai.tools.called': toolCalls?.map((tc) => tc.toolName) || [],
+              'app.ai.tools.called_count': toolCalls?.length || 0,
+              'app.ai.response.messages_count': assistantMessages.length,
+              'app.ai.response.content': responseText,
+              'app.ai.response.has_reasoning': hasReasoning,
+              'app.ai.response.reasoning_steps': reasoningParts.length,
+            });
+
+            // End the span here after completion
+            chatSpan.end();
+
+            if (session.user?.id) {
+              try {
+                const assistantId = getTrailingMessageId({
+                  messages: response.messages.filter(
+                    (message) => message.role === 'assistant',
+                  ),
                 });
 
-                // End the span here after completion
-                chatSpan.end();
-
-                if (session.user?.id) {
-                    try {
-                        const assistantId = getTrailingMessageId({
-                            messages: response.messages.filter(
-                                (message) => message.role === 'assistant',
-                            ),
-                        });
-
-                        if (!assistantId) {
-                            throw new Error('No assistant message found!');
-                        }
-
-                        const [, assistantMessage] = appendResponseMessages({
-                            messages: [message],
-                            responseMessages: response.messages,
-                        });
-
-                        await saveMessages({
-                            messages: [
-                                {
-                                    id: assistantId,
-                                    chatId: id,
-                                    role: assistantMessage.role,
-                                    parts: assistantMessage.parts,
-                                    attachments:
-                                        assistantMessage.experimental_attachments ?? [],
-                                    createdAt: new Date(),
-                                },
-                            ],
-                        });
-
-                        chatSpan.setAttributes({
-                            'app.message.id': assistantId,
-                            'app.message.role': 'assistant',
-                        })
-                    } catch (error) {
-                        recordError(chatSpan, error as Error, {
-                            'error.context': 'save_assistant_message',
-                        });
-                        console.error('Failed to save chat');
-                    }
+                if (!assistantId) {
+                  throw new Error('No assistant message found!');
                 }
-            },
-            system: systemPrompt({selectedChatModel, requestHints}),
-            tools: {
-                getWeather,
-                createDocument: createDocument({session, dataStream}),
-                updateDocument: updateDocument({session, dataStream}),
-                requestSuggestions: requestSuggestions({
-                    session,
-                    dataStream,
-                }),
-            },
+
+                const [, assistantMessage] = appendResponseMessages({
+                  messages: [message],
+                  responseMessages: response.messages,
+                });
+
+                await saveMessages({
+                  messages: [
+                    {
+                      id: assistantId,
+                      chatId: id,
+                      role: assistantMessage.role,
+                      parts: assistantMessage.parts,
+                      attachments:
+                        assistantMessage.experimental_attachments ?? [],
+                      createdAt: new Date(),
+                    },
+                  ],
+                });
+
+                chatSpan.setAttributes({
+                  'app.message.id': assistantId,
+                  'app.message.role': 'assistant',
+                });
+              } catch (error) {
+                recordError(chatSpan, error as Error, {
+                  'error.context': 'save_assistant_message',
+                });
+                console.error('Failed to save chat');
+              }
+            }
+          },
+          system: systemPrompt({ selectedChatModel, requestHints }),
+          tools: {
+            getWeather,
+            createDocument: createDocument({ session, dataStream }),
+            updateDocument: updateDocument({ session, dataStream }),
+            requestSuggestions: requestSuggestions({
+              session,
+              dataStream,
+            }),
+          },
         });
 
         result.consumeStream();

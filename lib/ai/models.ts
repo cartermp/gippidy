@@ -14,7 +14,7 @@ export const chatModels: Array<ChatModel> = [
   },
   {
     id: 'chat-model-reasoning',
-    name: 'Reasoning model',
-    description: 'Uses advanced reasoning',
+    name: 'Reasoning model (o4-mini)',
+    description: 'AI that shows its reasoning process before responding',
   },
 ];

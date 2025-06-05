@@ -26,7 +26,7 @@ export const myProvider = isTestEnvironment
   : customProvider({
       languageModels: {
         'chat-model': gpt41,
-        'chat-model-reasoning': gpt41,
+        'chat-model-reasoning': o4mini,  // Use actual reasoning model
         'title-model': gpt41,
         'artifact-model': gpt41,
       },

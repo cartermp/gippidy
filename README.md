@@ -154,4 +154,6 @@ TODOs:
 
 - web search support
 - support reasoning models including reasoning steps?
+- Really slick rendering support
+- Explore deviating UI from the template
 - Projects support
