@@ -152,6 +152,6 @@ graph TB
 
 TODOs:
 
-- good instrumentation, not just autoinstrumentation
+- web search support
 - support reasoning models including reasoning steps?
 - Projects support
