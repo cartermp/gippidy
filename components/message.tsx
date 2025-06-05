@@ -251,8 +251,9 @@ export const PreviewMessage = memo(
   },
 );
 
-export const ThinkingMessage = () => {
+export const ThinkingMessage = ({ selectedChatModel }: { selectedChatModel?: string }) => {
   const role = 'assistant';
+  const isReasoningModel = selectedChatModel === 'chat-model-reasoning';
 
   return (
     <motion.div
@@ -276,7 +277,20 @@ export const ThinkingMessage = () => {
 
         <div className="flex flex-col gap-2 w-full">
           <div className="flex flex-col gap-4 text-muted-foreground">
-            Hmm...
+            <div className="flex items-center gap-2">
+              {isReasoningModel ? (
+                <>
+                  <div className="flex space-x-1">
+                    <div className="size-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <div className="size-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <div className="size-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <span>Thinking...</span>
+                </>
+              ) : (
+                'Hmm...'
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -17,6 +17,7 @@ interface MessagesProps {
   reload: UseChatHelpers['reload'];
   isReadonly: boolean;
   isArtifactVisible: boolean;
+  selectedChatModel?: string;
 }
 
 function PureMessages({
@@ -27,6 +28,7 @@ function PureMessages({
   setMessages,
   reload,
   isReadonly,
+  selectedChatModel,
 }: MessagesProps) {
   const {
     containerRef: messagesContainerRef,
@@ -68,7 +70,9 @@ function PureMessages({
 
       {status === 'submitted' &&
         messages.length > 0 &&
-        messages[messages.length - 1].role === 'user' && <ThinkingMessage />}
+        messages[messages.length - 1].role === 'user' && (
+          <ThinkingMessage selectedChatModel={selectedChatModel} />
+        )}
 
       <motion.div
         ref={messagesEndRef}
