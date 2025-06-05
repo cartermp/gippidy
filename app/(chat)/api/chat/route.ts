@@ -179,6 +179,13 @@ export async function POST(request: Request) {
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
+    // Extract user message text from parts
+    const userContent = message.parts || [];
+    const userText = userContent
+        .filter(part => part.type === 'text')
+        .map(part => part.text)
+        .join(' ');
+
     chatSpan.setAttributes({
       'app.ai.tools.active': [
         'getWeather',
@@ -188,6 +195,9 @@ export async function POST(request: Request) {
       ],
       'app.ai.response.streaming': true,
       'app.stream.id': streamId,
+      'app.ai.model.input.messages_count': messages.length,
+      'app.ai.model.input.system_prompt': systemPrompt({ selectedChatModel, requestHints }),
+      'app.ai.model.input.user_message': userText,
     });
 
     const stream = createDataStream({
@@ -209,12 +219,34 @@ export async function POST(request: Request) {
             messages,
             model: myProvider.languageModel(selectedChatModel),
             onFinish: async ({response, usage, finishReason, toolCalls}) => {
-                // Record AI completion metrics
+                // Record AI completion metrics and full I/O
+                const assistantMessages = response.messages.filter(m => m.role === 'assistant');
+                const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+
+                // Extract text content from parts
+                const responseContent = lastAssistantMessage?.content;
+                const responseText = typeof responseContent === 'string'
+                    ? responseContent
+                    : Array.isArray(responseContent)
+                        ? responseContent
+                            .filter(part => part.type === 'text')
+                            .map(part => part.text)
+                            .join(' ')
+                        : '';
+
                 chatSpan.setAttributes({
                     'app.ai.response.finish_reason': finishReason || 'unknown',
-                    'app.ai.response.tokens': usage?.totalTokens || 0,
+                    'app.ai.response.tokens.total': usage?.totalTokens || 0,
+                    'app.ai.response.tokens.prompt': usage?.promptTokens || 0,
+                    'app.ai.response.tokens.completion': usage?.completionTokens || 0,
                     'app.ai.tools.called': toolCalls?.map(tc => tc.toolName) || [],
+                    'app.ai.tools.called_count': toolCalls?.length || 0,
+                    'app.ai.response.messages_count': assistantMessages.length,
+                    'app.ai.response.content': responseText,
                 });
+
+                // End the span here after completion
+                chatSpan.end();
 
                 if (session.user?.id) {
                     try {
@@ -290,9 +322,7 @@ export async function POST(request: Request) {
 
     chatSpan.setAttributes({
       'stream.resumable': !!streamContext,
-    })
-
-    chatSpan.end();
+    });
 
     if (streamContext) {
       return new Response(
