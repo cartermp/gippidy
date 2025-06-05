@@ -31,6 +31,7 @@ import {
 import type { ArtifactKind } from '@/components/artifact';
 import type { VisibilityType } from '@/components/visibility-selector';
 import { ChatSDKError } from '../errors';
+import { recordErrorOnCurrentSpan } from '../telemetry';
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
@@ -44,6 +45,10 @@ export async function getUser(email: string): Promise<Array<User>> {
   try {
     return await db.select().from(user).where(eq(user.email, email));
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'get_user',
+      'user.email': email,
+    });
     throw new ChatSDKError(
       'bad_request:database',
       'Failed to get user by email',
@@ -58,6 +63,10 @@ export async function createUserWithEmail(email: string) {
       email: user.email,
     });
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'create_user',
+      'user.email': email,
+    });
     throw new ChatSDKError('bad_request:database', 'Failed to create user');
   }
 }
@@ -82,6 +91,11 @@ export async function saveChat({
       visibility,
     });
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'save_chat',
+      'chat.id': id,
+      'user.id': userId,
+    });
     throw new ChatSDKError('bad_request:database', 'Failed to save chat');
   }
 }
@@ -98,6 +112,10 @@ export async function deleteChatById({ id }: { id: string }) {
       .returning();
     return chatsDeleted;
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'delete_chat',
+      'chat.id': id,
+    });
     throw new ChatSDKError(
       'bad_request:database',
       'Failed to delete chat by id',
@@ -186,6 +204,10 @@ export async function getChatById({ id }: { id: string }) {
     const [selectedChat] = await db.select().from(chat).where(eq(chat.id, id));
     return selectedChat;
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'get_chat_by_id',
+      'chat.id': id,
+    });
     throw new ChatSDKError('bad_request:database', 'Failed to get chat by id');
   }
 }
@@ -198,6 +220,10 @@ export async function saveMessages({
   try {
     return await db.insert(message).values(messages);
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'save_messages',
+      'message.count': messages.length,
+    });
     throw new ChatSDKError('bad_request:database', 'Failed to save messages');
   }
 }
@@ -244,6 +270,11 @@ export async function voteMessage({
       isUpvoted: type === 'up',
     });
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'vote_message',
+      'message.id': messageId,
+      'vote.type': type,
+    });
     throw new ChatSDKError('bad_request:database', 'Failed to vote message');
   }
 }
@@ -285,6 +316,11 @@ export async function saveDocument({
       })
       .returning();
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'save_document',
+      'document.id': id,
+      'document.kind': kind,
+    });
     throw new ChatSDKError('bad_request:database', 'Failed to save document');
   }
 }

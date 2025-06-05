@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { auth } from '@/app/(auth)/auth';
+import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
 
 // Use Blob instead of File since File is not available in Node.js environment
 const FileSchema = z.object({
@@ -57,9 +58,17 @@ export async function POST(request: Request) {
 
       return NextResponse.json(data);
     } catch (error) {
+      recordErrorOnCurrentSpan(error as Error, {
+        'operation': 'blob_upload',
+        'filename': filename,
+        'file.size': fileBuffer.byteLength,
+      });
       return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
     }
   } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'file_upload_request',
+    });
     return NextResponse.json(
       { error: 'Failed to process request' },
       { status: 500 },

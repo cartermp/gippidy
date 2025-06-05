@@ -2,6 +2,7 @@ import { auth } from '@/app/(auth)/auth';
 import type { NextRequest } from 'next/server';
 import { getChatsByUserId } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
+import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -23,12 +24,21 @@ export async function GET(request: NextRequest) {
     return new ChatSDKError('unauthorized:chat').toResponse();
   }
 
-  const chats = await getChatsByUserId({
-    id: session.user.id,
-    limit,
-    startingAfter,
-    endingBefore,
-  });
+  try {
+    const chats = await getChatsByUserId({
+      id: session.user.id,
+      limit,
+      startingAfter,
+      endingBefore,
+    });
 
-  return Response.json(chats);
+    return Response.json(chats);
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'get_chat_history',
+      'user.id': session.user.id,
+      'pagination.limit': limit,
+    });
+    throw error;
+  }
 }

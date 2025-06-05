@@ -2,6 +2,7 @@ import NextAuth, { type DefaultSession } from 'next-auth';
 import Google from 'next-auth/providers/google';
 import { authConfig } from './auth.config';
 import { getUser, createUserWithEmail } from '@/lib/db/queries';
+import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
 
 declare module 'next-auth' {
   interface Session extends DefaultSession {
@@ -48,6 +49,11 @@ export const {
         }
         return true;
       } catch (error) {
+        recordErrorOnCurrentSpan(error as Error, {
+          'error.context': 'auth_user_creation_or_lookup',
+          'auth.user_email': userEmail,
+          'auth.provider': 'google',
+        });
         console.error('Error creating/getting user:', error);
         return false;
       }
@@ -73,6 +79,10 @@ export const {
             session.user.id = dbUsers[0].id;
           }
         } catch (error) {
+          recordErrorOnCurrentSpan(error as Error, {
+            'error.context': 'auth_session_user_verification',
+            'auth.user_email': session.user.email,
+          });
           console.error('Error ensuring user exists during session:', error);
         }
       }

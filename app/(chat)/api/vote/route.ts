@@ -1,6 +1,7 @@
 import { auth } from '@/app/(auth)/auth';
 import { getChatById, getVotesByChatId, voteMessage } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
+import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -29,9 +30,17 @@ export async function GET(request: Request) {
     return new ChatSDKError('forbidden:vote').toResponse();
   }
 
-  const votes = await getVotesByChatId({ id: chatId });
+  try {
+    const votes = await getVotesByChatId({ id: chatId });
 
-  return Response.json(votes, { status: 200 });
+    return Response.json(votes, { status: 200 });
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'get_votes',
+      'chat.id': chatId,
+    });
+    throw error;
+  }
 }
 
 export async function PATCH(request: Request) {
@@ -65,11 +74,21 @@ export async function PATCH(request: Request) {
     return new ChatSDKError('forbidden:vote').toResponse();
   }
 
-  await voteMessage({
-    chatId,
-    messageId,
-    type: type,
-  });
+  try {
+    await voteMessage({
+      chatId,
+      messageId,
+      type: type,
+    });
 
-  return new Response('Message voted', { status: 200 });
+    return new Response('Message voted', { status: 200 });
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'vote_message',
+      'chat.id': chatId,
+      'message.id': messageId,
+      'vote.type': type,
+    });
+    throw error;
+  }
 }

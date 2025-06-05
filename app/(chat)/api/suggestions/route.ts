@@ -1,6 +1,7 @@
 import { auth } from '@/app/(auth)/auth';
 import { getSuggestionsByDocumentId } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
+import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -19,19 +20,27 @@ export async function GET(request: Request) {
     return new ChatSDKError('unauthorized:suggestions').toResponse();
   }
 
-  const suggestions = await getSuggestionsByDocumentId({
-    documentId,
-  });
+  try {
+    const suggestions = await getSuggestionsByDocumentId({
+      documentId,
+    });
 
-  const [suggestion] = suggestions;
+    const [suggestion] = suggestions;
 
-  if (!suggestion) {
-    return Response.json([], { status: 200 });
+    if (!suggestion) {
+      return Response.json([], { status: 200 });
+    }
+
+    if (suggestion.userId !== session.user.id) {
+      return new ChatSDKError('forbidden:api').toResponse();
+    }
+
+    return Response.json(suggestions, { status: 200 });
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'get_suggestions',
+      'document.id': documentId,
+    });
+    throw error;
   }
-
-  if (suggestion.userId !== session.user.id) {
-    return new ChatSDKError('forbidden:api').toResponse();
-  }
-
-  return Response.json(suggestions, { status: 200 });
 }

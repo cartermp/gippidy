@@ -6,6 +6,7 @@ import {
   saveDocument,
 } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
+import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -24,19 +25,27 @@ export async function GET(request: Request) {
     return new ChatSDKError('unauthorized:document').toResponse();
   }
 
-  const documents = await getDocumentsById({ id });
+  try {
+    const documents = await getDocumentsById({ id });
 
-  const [document] = documents;
+    const [document] = documents;
 
-  if (!document) {
-    return new ChatSDKError('not_found:document').toResponse();
+    if (!document) {
+      return new ChatSDKError('not_found:document').toResponse();
+    }
+
+    if (document.userId !== session.user.id) {
+      return new ChatSDKError('forbidden:document').toResponse();
+    }
+
+    return Response.json(documents, { status: 200 });
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'get_document',
+      'document.id': id,
+    });
+    throw error;
   }
-
-  if (document.userId !== session.user.id) {
-    return new ChatSDKError('forbidden:document').toResponse();
-  }
-
-  return Response.json(documents, { status: 200 });
 }
 
 export async function POST(request: Request) {
@@ -73,15 +82,24 @@ export async function POST(request: Request) {
     }
   }
 
-  const document = await saveDocument({
-    id,
-    content,
-    title,
-    kind,
-    userId: session.user.id,
-  });
+  try {
+    const document = await saveDocument({
+      id,
+      content,
+      title,
+      kind,
+      userId: session.user.id,
+    });
 
-  return Response.json(document, { status: 200 });
+    return Response.json(document, { status: 200 });
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'save_document',
+      'document.id': id,
+      'document.kind': kind,
+    });
+    throw error;
+  }
 }
 
 export async function DELETE(request: Request) {
@@ -117,10 +135,19 @@ export async function DELETE(request: Request) {
     return new ChatSDKError('forbidden:document').toResponse();
   }
 
-  const documentsDeleted = await deleteDocumentsByIdAfterTimestamp({
-    id,
-    timestamp: new Date(timestamp),
-  });
+  try {
+    const documentsDeleted = await deleteDocumentsByIdAfterTimestamp({
+      id,
+      timestamp: new Date(timestamp),
+    });
 
-  return Response.json(documentsDeleted, { status: 200 });
+    return Response.json(documentsDeleted, { status: 200 });
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      'operation': 'delete_document_versions',
+      'document.id': id,
+      'timestamp': timestamp,
+    });
+    throw error;
+  }
 }

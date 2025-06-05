@@ -33,3 +33,14 @@ export function recordError(span: any, error: Error, context?: Record<string, an
     span.setAttributes(context);
   }
 }
+
+export function getCurrentSpan(): Span | undefined {
+  return trace.getActiveSpan();
+}
+
+export function recordErrorOnCurrentSpan(error: Error, context?: Record<string, any>): void {
+  const span = getCurrentSpan();
+  if (span) {
+    recordError(span, error, context);
+  }
+}

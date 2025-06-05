@@ -36,7 +36,7 @@ import { after } from 'next/server';
 import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
-import { createChatSpan, recordError } from '@/lib/telemetry';
+import {createChatSpan, recordError, recordErrorOnCurrentSpan} from '@/lib/telemetry';
 
 export const maxDuration = 60;
 
@@ -54,6 +54,10 @@ function getStreamContext() {
           ' > Resumable streams are disabled due to missing REDIS_URL',
         );
       } else {
+        recordErrorOnCurrentSpan(error, {
+          'operation': 'stream_context_init',
+          'error.type': 'redis_connection',
+        });
         console.error(error);
       }
     }
