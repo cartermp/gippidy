@@ -8,6 +8,7 @@ import type { Vote } from '@/lib/db/schema';
 import { DocumentToolCall, DocumentToolResult } from './document';
 import { PencilEditIcon, SparklesIcon } from './icons';
 import { Markdown } from './markdown';
+import { StreamingText } from './streaming-text';
 import { MessageActions } from './message-actions';
 import { PreviewAttachment } from './preview-attachment';
 import { Weather } from './weather';
@@ -130,7 +131,13 @@ const PurePreviewMessage = ({
                             message.role === 'user',
                         })}
                       >
-                        <Markdown>{sanitizeText(part.text)}</Markdown>
+                        {message.role === 'assistant' ? (
+                          <StreamingText isStreaming={isLoading}>
+                            {sanitizeText(part.text)}
+                          </StreamingText>
+                        ) : (
+                          <Markdown>{sanitizeText(part.text)}</Markdown>
+                        )}
                       </div>
                     </div>
                   );
@@ -251,7 +258,9 @@ export const PreviewMessage = memo(
   },
 );
 
-export const ThinkingMessage = ({ selectedChatModel }: { selectedChatModel?: string }) => {
+export const ThinkingMessage = ({
+  selectedChatModel,
+}: { selectedChatModel?: string }) => {
   const role = 'assistant';
   const isReasoningModel = selectedChatModel === 'chat-model-reasoning';
 
@@ -283,9 +292,18 @@ export const ThinkingMessage = ({ selectedChatModel }: { selectedChatModel?: str
               {isReasoningModel ? (
                 <>
                   <div className="flex space-x-1">
-                    <div className="size-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="size-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="size-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div
+                      className="size-2 bg-muted-foreground rounded-full animate-bounce"
+                      style={{ animationDelay: '0ms' }}
+                    />
+                    <div
+                      className="size-2 bg-muted-foreground rounded-full animate-bounce"
+                      style={{ animationDelay: '150ms' }}
+                    />
+                    <div
+                      className="size-2 bg-muted-foreground rounded-full animate-bounce"
+                      style={{ animationDelay: '300ms' }}
+                    />
                   </div>
                   <span>Thinking...</span>
                 </>
