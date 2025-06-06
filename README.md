@@ -152,6 +152,10 @@ graph TB
 
 TODOs:
 
+UX
+- stream the chat smoothly, don't make it seem choppy, it should smoothly reveal itself
+- change initial loading state to have the little icon spin like gemini does
+
 - web search support
 - support reasoning models including reasoning steps?
 - Really slick rendering support
