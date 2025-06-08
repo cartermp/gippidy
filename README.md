@@ -150,12 +150,13 @@ graph TB
 - **Testing**: Playwright for E2E testing with Page Object Model
 - **Code Quality**: Biome for linting and formatting
 
-TODOs:
+### TODOs
 
-UX
+UX:
 - stream the chat smoothly, don't make it seem choppy, it should smoothly reveal itself
 - change initial loading state to have the little icon spin like gemini does
 
+Functionality:
 - web search support
 - support reasoning models including reasoning steps?
 - Really slick rendering support

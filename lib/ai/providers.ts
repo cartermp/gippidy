@@ -1,7 +1,6 @@
-import {
-  customProvider,
-} from 'ai';
+import { customProvider } from 'ai';
 import { openai } from '@ai-sdk/openai';
+import { google } from '@ai-sdk/google';
 import { isTestEnvironment } from '../constants';
 import {
   artifactModel,
@@ -11,8 +10,12 @@ import {
 } from './models.test';
 
 export const gpt4o = openai('gpt-4o');
+export const gpt41nano = openai('gpt-4.1-nano');
 export const gpt41 = openai('gpt-4.1');
 export const o4mini = openai('o4-mini');
+
+export const geminiFlash = google('gemini-2.0-flash-lite');
+export const geminiPro = google('gemini-2.5-pro');
 
 export const myProvider = isTestEnvironment
   ? customProvider({
@@ -25,9 +28,9 @@ export const myProvider = isTestEnvironment
     })
   : customProvider({
       languageModels: {
-        'chat-model': gpt41,
-        'chat-model-reasoning': o4mini,  // Use actual reasoning model
-        'title-model': gpt41,
-        'artifact-model': gpt41,
+        'chat-model': geminiFlash,
+        'chat-model-reasoning': o4mini, // Use actual reasoning model
+        'title-model': geminiFlash,
+        'artifact-model': geminiFlash,
       },
     });
