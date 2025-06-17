@@ -3,6 +3,7 @@ import Google from 'next-auth/providers/google';
 import { authConfig } from './auth.config';
 import { getUser, createUserWithEmail } from '@/lib/db/queries';
 import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
+import { isTestEnvironment } from '@/lib/constants';
 
 declare module 'next-auth' {
   interface Session extends DefaultSession {
@@ -12,12 +13,7 @@ declare module 'next-auth' {
   }
 }
 
-export const {
-  handlers: { GET, POST },
-  auth,
-  signIn,
-  signOut,
-} = NextAuth({
+const nextAuth = NextAuth({
   ...authConfig,
   providers: [
     Google({
@@ -90,3 +86,52 @@ export const {
     },
   },
 });
+
+export const {
+  handlers: { GET, POST },
+  signIn,
+  signOut,
+} = nextAuth;
+
+// Test auth override for integration tests
+export async function auth() {
+  if (isTestEnvironment) {
+    // In test mode, extract user info from request headers
+    const { headers } = await import('next/headers');
+    const headerStore = await headers();
+    const userAgent = headerStore.get('user-agent') || '';
+    const testUserId = headerStore.get('x-test-user-id') || '';
+    const testUserEmail = headerStore.get('x-test-user-email') || '';
+    
+    // Check if this is a Playwright test request
+    if (userAgent.includes('Playwright') && testUserEmail) {
+      // Ensure test user exists in database
+      try {
+        const dbUsers = await getUser(testUserEmail);
+        let userId = testUserId;
+        
+        if (dbUsers.length === 0) {
+          const [newUser] = await createUserWithEmail(testUserEmail);
+          userId = newUser.id;
+        } else {
+          userId = dbUsers[0].id;
+        }
+        
+        return {
+          user: {
+            id: userId,
+            email: testUserEmail,
+            name: `Test User ${testUserId}`,
+          },
+          expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        };
+      } catch (error) {
+        console.error('Error creating test user:', error);
+        return null;
+      }
+    }
+  }
+  
+  // In production/development, use normal NextAuth
+  return nextAuth.auth();
+}

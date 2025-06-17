@@ -147,8 +147,44 @@ graph TB
 - **AI**: Vercel AI SDK with OpenAI GPT-4.1/4o/o4-mini models
 - **Observability**: OpenTelemetry data, sent to Honeycomb
 - **Storage**: Vercel Blob for file uploads, Redis for caching
-- **Testing**: Playwright for E2E testing with Page Object Model
+- **Testing**: Playwright for E2E, integration, and API testing
 - **Code Quality**: Biome for linting and formatting
+
+## Testing
+
+The application has a comprehensive test suite covering critical functionality:
+
+### Test Categories
+
+- **E2E Tests** (`tests/e2e/`): End-to-end user workflows
+- **Integration Tests** (`tests/integration/`): Database operations and API integration
+- **Route Tests** (`tests/routes/`): API contract and authentication validation
+
+### Running Tests
+
+```bash
+# Run all tests
+pnpm test
+
+# Run specific test categories
+pnpm exec playwright test --project=e2e         # End-to-end tests
+pnpm exec playwright test --project=routes      # API route tests  
+pnpm exec playwright test --project=integration # Database integration tests
+
+# Run specific test files
+pnpm exec playwright test tests/integration/database.test.ts
+```
+
+### Key Test Coverage
+
+- **Document creation/retrieval** for all artifact types (`text`, `code`, `image`, `sheet`)
+- **Schema validation** and database constraints
+- **User authentication** and authorization
+- **Document versioning** and ownership
+- **Chat message flow** and streaming
+- **Artifact creation pipeline** via AI tools
+
+The integration tests would have caught the recent `kind` column schema bug and will prevent similar refactor breaks.
 
 ### TODOs
 

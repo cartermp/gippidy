@@ -21,7 +21,10 @@ pnpm db:migrate       # Run database migrations
 pnpm db:studio        # Open Drizzle Studio for DB inspection
 
 # Testing
-pnpm test             # Run Playwright E2E tests
+pnpm test             # Run all Playwright tests (E2E + integration)
+pnpm exec playwright test --project=e2e         # Run E2E tests only
+pnpm exec playwright test --project=routes      # Run API route tests only
+pnpm exec playwright test --project=integration # Run database integration tests only
 ```
 
 ## Architecture Overview
@@ -64,9 +67,12 @@ NextAuth.js 5.0 beta with Google OAuth provider only. All users must authenticat
 - Follow existing component patterns in `components/` directory
 
 ### Testing Strategy
-- **Playwright E2E tests** with Page Object Model in `tests/pages/`
+- **E2E tests**: End-to-end user flows with Page Object Model in `tests/e2e/`
+- **Integration tests**: Database operations and API endpoints in `tests/integration/`
+- **Route tests**: API contract validation in `tests/routes/`
 - Mock AI responses for consistent test behavior
 - Run tests before major changes: `pnpm test`
+- Focus on critical paths that catch refactor breaks
 
 ### Database Changes
 1. Update schema in `lib/db/schema.ts`

@@ -7,6 +7,13 @@ import {
 } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
 import { recordErrorOnCurrentSpan } from '@/lib/telemetry';
+import { z } from 'zod';
+
+const documentRequestSchema = z.object({
+  title: z.string().min(1).max(500),
+  content: z.string(),
+  kind: z.enum(['text', 'code', 'image', 'sheet']),
+});
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -65,12 +72,18 @@ export async function POST(request: Request) {
     return new ChatSDKError('not_found:document').toResponse();
   }
 
-  const {
-    content,
-    title,
-    kind,
-  }: { content: string; title: string; kind: ArtifactKind } =
-    await request.json();
+  let requestBody;
+  try {
+    const json = await request.json();
+    requestBody = documentRequestSchema.parse(json);
+  } catch (error) {
+    return new ChatSDKError(
+      'bad_request:api',
+      'Invalid request body format',
+    ).toResponse();
+  }
+
+  const { content, title, kind } = requestBody;
 
   const documents = await getDocumentsById({ id });
 

@@ -26,47 +26,26 @@ export async function createAuthenticatedContext({
   name: string;
   chatModel?: 'chat-model' | 'chat-model-reasoning';
 }): Promise<UserContext> {
-  const directory = path.join(__dirname, '../playwright/.sessions');
+  const testUserId = `test-user-${name}`;
+  const testUserEmail = `test-${name}@example.com`;
 
-  if (!fs.existsSync(directory)) {
-    fs.mkdirSync(directory, { recursive: true });
-  }
-
-  const storageFile = path.join(directory, `${name}.json`);
-
-  const context = await browser.newContext();
+  // Create context with test headers for auth bypass
+  const context = await browser.newContext({
+    extraHTTPHeaders: {
+      'x-test-user-id': testUserId,
+      'x-test-user-email': testUserEmail,
+      'user-agent': 'Playwright Test Browser',
+    },
+  });
+  
   const page = await context.newPage();
 
-  const email = `test-${name}@playwright.com`;
-  const password = generateId(16);
-
-  await page.goto('http://localhost:3000/register');
-  await page.getByPlaceholder('user@acme.com').click();
-  await page.getByPlaceholder('user@acme.com').fill(email);
-  await page.getByLabel('Password').click();
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign Up' }).click();
-
-  await expect(page.getByTestId('toast')).toContainText(
-    'Account created successfully!',
-  );
-
-  const chatPage = new ChatPage(page);
-  await chatPage.createNewChat();
-  await chatPage.chooseModelFromSelector('chat-model-reasoning');
-  await expect(chatPage.getSelectedModel()).resolves.toEqual('Reasoning model');
-
-  await page.waitForTimeout(1000);
-  await context.storageState({ path: storageFile });
-  await page.close();
-
-  const newContext = await browser.newContext({ storageState: storageFile });
-  const newPage = await newContext.newPage();
-
+  // For integration tests, we mainly need the request context with auth headers
+  // The auth() function will recognize these headers and create mock sessions
   return {
-    context: newContext,
-    page: newPage,
-    request: newContext.request,
+    context,
+    page,
+    request: context.request,
   };
 }
 

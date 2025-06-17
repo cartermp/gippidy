@@ -65,6 +65,13 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
       },
     },
+    {
+      name: 'integration',
+      testMatch: /integration\/.*.test.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
 
     // {
     //   name: 'firefox',
@@ -99,9 +106,12 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm dev',
+    command: 'PLAYWRIGHT=true pnpm dev',
     url: `${baseURL}/ping`,
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,
+    env: {
+      PLAYWRIGHT: 'true',
+    },
   },
 });

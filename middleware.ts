@@ -18,6 +18,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Allow all API routes - they handle their own auth
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next();
+  }
+
   // Allow auth pages (no auth required)
   if (['/login', '/register', '/auth-error'].includes(pathname)) {
     return NextResponse.next();
