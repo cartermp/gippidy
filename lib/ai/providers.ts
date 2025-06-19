@@ -28,7 +28,7 @@ export const myProvider = isTestEnvironment
     })
   : customProvider({
       languageModels: {
-        'chat-model': geminiFlash,
+        'chat-model': gpt4o,
         'chat-model-reasoning': o4mini, // Use actual reasoning model
         'title-model': geminiFlash,
         'artifact-model': geminiFlash,
