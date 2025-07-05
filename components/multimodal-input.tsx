@@ -132,7 +132,7 @@ function PureMultimodalInput({
     chatId,
   ]);
 
-  const uploadFile = async (file: File) => {
+  const uploadFile = useCallback(async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -157,32 +157,67 @@ function PureMultimodalInput({
     } catch (error) {
       toast.error('Failed to upload file, please try again!');
     }
-  };
+  }, []);
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files || []);
+      const selectedFiles = Array.from(event.target.files || []);
+      if (selectedFiles.length === 0) return;
 
-      setUploadQueue(files.map((file) => file.name));
+      setUploadQueue((prev) => [...prev, ...selectedFiles.map((f) => f.name)]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
 
       try {
-        const uploadPromises = files.map((file) => uploadFile(file));
-        const uploadedAttachments = await Promise.all(uploadPromises);
-        const successfullyUploadedAttachments = uploadedAttachments.filter(
-          (attachment) => attachment !== undefined,
-        );
+        const uploadPromises = selectedFiles.map((file) => uploadFile(file));
+        const uploadedAttachments = (await Promise.all(uploadPromises)).filter(
+          Boolean,
+        ) as Attachment[];
 
-        setAttachments((currentAttachments) => [
-          ...currentAttachments,
-          ...successfullyUploadedAttachments,
-        ]);
+        setAttachments((prev) => [...prev, ...uploadedAttachments]);
       } catch (error) {
         console.error('Error uploading files!', error);
+        toast.error('Failed to upload selected files.');
       } finally {
-        setUploadQueue([]);
+        setUploadQueue((prev) =>
+          prev.filter((name) => !selectedFiles.some((f) => f.name === name)),
+        );
       }
     },
-    [setAttachments],
+    [setAttachments, uploadFile],
+  );
+
+  const handlePaste = useCallback(
+    async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const pastedFiles = Array.from(event.clipboardData.files);
+      const imageFiles = pastedFiles.filter((file) =>
+        file.type.startsWith('image/'),
+      );
+
+      if (imageFiles.length === 0) return;
+
+      event.preventDefault();
+
+      setUploadQueue((prev) => [...prev, ...imageFiles.map((f) => f.name)]);
+
+      try {
+        const uploadPromises = imageFiles.map((file) => uploadFile(file));
+        const uploadedAttachments = (await Promise.all(uploadPromises)).filter(
+          Boolean,
+        ) as Attachment[];
+
+        setAttachments((prev) => [...prev, ...uploadedAttachments]);
+      } catch (error) {
+        console.error('Error uploading pasted files:', error);
+        toast.error('Failed to upload pasted images.');
+      } finally {
+        setUploadQueue((prev) =>
+          prev.filter((name) => !imageFiles.some((f) => f.name === name)),
+        );
+      }
+    },
+    [setAttachments, uploadFile],
   );
 
   const { isAtBottom, scrollToBottom } = useScrollToBottom();
@@ -265,9 +300,10 @@ function PureMultimodalInput({
       <Textarea
         data-testid="multimodal-input"
         ref={textareaRef}
-        placeholder="Send a message..."
+        placeholder="Send a message or paste an image..."
         value={input}
         onChange={handleInput}
+        onPaste={handlePaste}
         className={cx(
           'min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl !text-base bg-muted pb-10 dark:border-zinc-700',
           className,
