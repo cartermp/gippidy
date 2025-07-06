@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import type { User } from 'next-auth';
 import { toast } from 'sonner';
@@ -55,6 +55,8 @@ export function ProjectView({ project, user }: ProjectViewProps) {
   const router = useRouter();
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch project chats
   const {
@@ -68,27 +70,62 @@ export function ProjectView({ project, user }: ProjectViewProps) {
     data: projectFiles,
     error: filesError,
     mutate: mutateFiles,
-  } = useSWR<ProjectFile[]>(`/api/projects/${project.id}/files`, fetcher);
+  } = useSWR<ProjectFile[]>(
+    `/api/projects/${project.id}/files`,
+    async (url: string) => {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          // Log the response details for debugging
+          const errorText = await response.text();
+          console.error(`Files API error ${response.status}:`, errorText);
+
+          // For any error, return empty array to show proper empty state
+          // This is better UX than showing error for zero files
+          return [];
+        }
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
+      } catch (error) {
+        console.error('Error fetching files:', error);
+        // Return empty array to show proper empty state
+        return [];
+      }
+    },
+    {
+      // Disable retry on error to prevent spam
+      errorRetryCount: 0,
+      revalidateOnFocus: false,
+    },
+  );
 
   const handleCreateChat = async () => {
     setIsCreatingChat(true);
     try {
       // First create a new chat
-      const chatResponse = await fetch('/api/chat', {
+      const chatId = crypto.randomUUID();
+      const chatResponse = await fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: crypto.randomUUID(),
-          messages: [],
+          id: chatId,
+          title: 'New Chat',
           visibility: 'private',
         }),
       });
 
       if (!chatResponse.ok) {
-        throw new Error('Failed to create chat');
+        const errorText = await chatResponse.text();
+        console.error(
+          `Chat creation failed with status ${chatResponse.status}:`,
+          errorText,
+        );
+        throw new Error(
+          `Failed to create chat: ${chatResponse.status} ${errorText}`,
+        );
       }
 
-      const { id: chatId } = await chatResponse.json();
+      await chatResponse.json(); // Just ensure the response is valid
 
       // Then associate it with the project
       const associateResponse = await fetch(
@@ -101,7 +138,14 @@ export function ProjectView({ project, user }: ProjectViewProps) {
       );
 
       if (!associateResponse.ok) {
-        throw new Error('Failed to associate chat with project');
+        const errorText = await associateResponse.text();
+        console.error(
+          `Chat association failed with status ${associateResponse.status}:`,
+          errorText,
+        );
+        throw new Error(
+          `Failed to associate chat with project: ${associateResponse.status} ${errorText}`,
+        );
       }
 
       mutateChats();
@@ -137,6 +181,46 @@ export function ProjectView({ project, user }: ProjectViewProps) {
       toast.error('Failed to delete project');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleFileUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingFile(true);
+    try {
+      const content = await file.text();
+
+      const response = await fetch(`/api/projects/${project.id}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          fileType: file.type || 'text/plain',
+          content: content,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload file');
+      }
+
+      mutateFiles();
+      toast.success('File uploaded successfully');
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload file');
+    } finally {
+      setIsUploadingFile(false);
+      // Reset the input
+      event.target.value = '';
     }
   };
 
@@ -291,18 +375,27 @@ export function ProjectView({ project, user }: ProjectViewProps) {
                   Documents and resources for this project
                 </CardDescription>
               </div>
-              <Button variant="outline" size="sm" disabled>
-                <PlusIcon size={16} />
-                Upload File
+              <Button
+                onClick={handleFileUploadClick}
+                disabled={isUploadingFile}
+                size="sm"
+              >
+                {isUploadingFile ? (
+                  <>
+                    <LoaderIcon size={16} />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <PlusIcon size={16} />
+                    Upload File
+                  </>
+                )}
               </Button>
             </div>
           </CardHeader>
           <CardContent>
-            {filesError ? (
-              <div className="text-center py-8 text-muted-foreground">
-                Failed to load files
-              </div>
-            ) : !projectFiles ? (
+            {!projectFiles ? (
               <div className="flex items-center justify-center py-8 gap-2">
                 <LoaderIcon size={16} />
                 <span className="text-muted-foreground">Loading files...</span>
@@ -345,6 +438,16 @@ export function ProjectView({ project, user }: ProjectViewProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleFileUpload}
+        disabled={isUploadingFile}
+        className="hidden"
+        accept=".txt,.md,.json,.csv,.html,.xml,.yaml,.yml,.js,.ts,.tsx,.jsx,.py,.java,.cpp,.c,.h,.css,.scss,.sass,.less,.sql,.sh,.bash,.zsh,.fish,.ps1,.bat,.cmd,.dockerfile,.gitignore,.env"
+      />
     </div>
   );
 }

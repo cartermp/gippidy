@@ -55,7 +55,9 @@ export async function GET(
       'project.id': projectId,
       'user.id': session.user.id,
     });
-    throw error;
+    console.error('Error in GET /api/projects/[id]/files:', error);
+    // Return empty array for better UX - don't show error for zero files case
+    return Response.json([], { status: 200 });
   }
 }
 

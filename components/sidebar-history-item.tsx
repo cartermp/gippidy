@@ -25,6 +25,7 @@ import {
 } from './icons';
 import { memo } from 'react';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
+import { ChatProjectIndicator } from './chat-project-indicator';
 
 const PureChatItem = ({
   chat,
@@ -46,7 +47,10 @@ const PureChatItem = ({
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive}>
         <Link href={`/chat/${chat.id}`} onClick={() => setOpenMobile(false)}>
-          <span>{chat.title}</span>
+          <div className="flex flex-col min-w-0 w-full">
+            <span className="truncate">{chat.title}</span>
+            <ChatProjectIndicator chatId={chat.id} />
+          </div>
         </Link>
       </SidebarMenuButton>
 

@@ -3,7 +3,11 @@ import { notFound, redirect } from 'next/navigation';
 
 import { auth } from '@/app/(auth)/auth';
 import { Chat } from '@/components/chat';
-import { getChatById, getMessagesByChatId } from '@/lib/db/queries';
+import {
+  getChatById,
+  getMessagesByChatId,
+  getProjectsByChatId,
+} from '@/lib/db/queries';
 import { DataStreamHandler } from '@/components/data-stream-handler';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import type { DBMessage } from '@/lib/db/schema';
@@ -38,6 +42,11 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
     id,
   });
 
+  // Get project associations for this chat
+  const projectAssociations = await getProjectsByChatId({ chatId: id });
+  const project =
+    projectAssociations.length > 0 ? projectAssociations[0] : null;
+
   function convertToUIMessages(messages: Array<DBMessage>): Array<UIMessage> {
     return messages.map((message) => ({
       id: message.id,
@@ -65,6 +74,7 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
           isReadonly={session?.user?.id !== chat.userId}
           session={session}
           autoResume={true}
+          project={project}
         />
         <DataStreamHandler id={id} />
       </>
@@ -81,6 +91,7 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
         isReadonly={session?.user?.id !== chat.userId}
         session={session}
         autoResume={true}
+        project={project}
       />
       <DataStreamHandler id={id} />
     </>

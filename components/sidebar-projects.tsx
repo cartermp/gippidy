@@ -100,7 +100,7 @@ export function SidebarProjects({ user }: ProjectsProps) {
         // Get detailed error information from the response
         let errorMessage = 'Failed to create project';
         let errorDetails = '';
-        
+
         try {
           const errorData = await response.json();
           console.error('Project creation API error:', {
@@ -108,7 +108,7 @@ export function SidebarProjects({ user }: ProjectsProps) {
             statusText: response.statusText,
             errorData,
           });
-          
+
           if (errorData.message) {
             errorMessage = errorData.message;
           }
@@ -132,8 +132,10 @@ export function SidebarProjects({ user }: ProjectsProps) {
             });
           }
         }
-        
-        throw new Error(`${errorMessage}${errorDetails ? `: ${errorDetails}` : ''}`);
+
+        throw new Error(
+          `${errorMessage}${errorDetails ? `: ${errorDetails}` : ''}`,
+        );
       }
 
       const newProject = await response.json();
@@ -153,7 +155,9 @@ export function SidebarProjects({ user }: ProjectsProps) {
       router.push(`/projects/${newProject.id}`);
     } catch (error) {
       console.error('Error creating project:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create project');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to create project',
+      );
     } finally {
       setIsCreating(false);
     }

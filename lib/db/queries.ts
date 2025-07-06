@@ -858,20 +858,28 @@ export async function removeFileFromProject({ id }: { id: string }) {
 
 export async function getFilesByProject({ projectId }: { projectId: string }) {
   try {
-    return await db
+    const result = await db
       .select()
       .from(projectFile)
       .where(eq(projectFile.projectId, projectId))
       .orderBy(desc(projectFile.uploadedAt));
+
+    // Always return an array, even if empty
+    return result || [];
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
       operation: 'get_files_by_project',
       'project.id': projectId,
+      'error.message': (error as Error).message,
     });
-    throw new ChatSDKError(
-      'bad_request:database',
-      'Failed to get files by project',
+
+    // For database connection/table issues, return empty array instead of throwing
+    // This handles the case where tables don't exist yet or DB is not ready
+    console.error(
+      'Database error getting files, returning empty array:',
+      error,
     );
+    return [];
   }
 }
 
