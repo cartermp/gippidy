@@ -27,6 +27,9 @@ import {
   type DBMessage,
   type Chat,
   stream,
+  project,
+  projectChat,
+  projectFile,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 import type { VisibilityType } from '@/components/visibility-selector';
@@ -46,7 +49,7 @@ export async function getUser(email: string): Promise<Array<User>> {
     return await db.select().from(user).where(eq(user.email, email));
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'get_user',
+      operation: 'get_user',
       'user.email': email,
     });
     throw new ChatSDKError(
@@ -64,7 +67,7 @@ export async function createUserWithEmail(email: string) {
     });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'create_user',
+      operation: 'create_user',
       'user.email': email,
     });
     throw new ChatSDKError('bad_request:database', 'Failed to create user');
@@ -92,7 +95,7 @@ export async function saveChat({
     });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'save_chat',
+      operation: 'save_chat',
       'chat.id': id,
       'user.id': userId,
     });
@@ -113,7 +116,7 @@ export async function deleteChatById({ id }: { id: string }) {
     return chatsDeleted;
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'delete_chat',
+      operation: 'delete_chat',
       'chat.id': id,
     });
     throw new ChatSDKError(
@@ -205,7 +208,7 @@ export async function getChatById({ id }: { id: string }) {
     return selectedChat;
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'get_chat_by_id',
+      operation: 'get_chat_by_id',
       'chat.id': id,
     });
     throw new ChatSDKError('bad_request:database', 'Failed to get chat by id');
@@ -221,7 +224,7 @@ export async function saveMessages({
     return await db.insert(message).values(messages);
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'save_messages',
+      operation: 'save_messages',
       'message.count': messages.length,
     });
     throw new ChatSDKError('bad_request:database', 'Failed to save messages');
@@ -271,7 +274,7 @@ export async function voteMessage({
     });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'vote_message',
+      operation: 'vote_message',
       'message.id': messageId,
       'vote.type': type,
     });
@@ -317,7 +320,7 @@ export async function saveDocument({
       .returning();
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'save_document',
+      operation: 'save_document',
       'document.id': id,
       'document.kind': kind,
     });
@@ -551,6 +554,374 @@ export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
     throw new ChatSDKError(
       'bad_request:database',
       'Failed to get stream ids by chat id',
+    );
+  }
+}
+
+// Project CRUD operations
+export async function createProject({
+  name,
+  description,
+  userId,
+}: {
+  name: string;
+  description?: string;
+  userId: string;
+}) {
+  try {
+    const now = new Date();
+    return await db
+      .insert(project)
+      .values({
+        name,
+        description,
+        userId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'create_project',
+      'project.name': name,
+      'user.id': userId,
+    });
+    throw new ChatSDKError('bad_request:database', 'Failed to create project');
+  }
+}
+
+export async function getProjectsByUserId({ userId }: { userId: string }) {
+  try {
+    const result = await db
+      .select()
+      .from(project)
+      .where(eq(project.userId, userId))
+      .orderBy(desc(project.updatedAt));
+
+    // Always return an array, even if empty
+    return result || [];
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'get_projects_by_user',
+      'user.id': userId,
+      'error.message': (error as Error).message,
+    });
+
+    // For database connection/table issues, return empty array instead of throwing
+    // This handles the case where tables don't exist yet or DB is not ready
+    console.error(
+      'Database error getting projects, returning empty array:',
+      error,
+    );
+    return [];
+  }
+}
+
+export async function updateProject({
+  id,
+  name,
+  description,
+}: {
+  id: string;
+  name?: string;
+  description?: string;
+}) {
+  try {
+    const updateData: { name?: string; description?: string; updatedAt: Date } =
+      {
+        updatedAt: new Date(),
+      };
+
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+
+    return await db
+      .update(project)
+      .set(updateData)
+      .where(eq(project.id, id))
+      .returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'update_project',
+      'project.id': id,
+    });
+    throw new ChatSDKError('bad_request:database', 'Failed to update project');
+  }
+}
+
+export async function deleteProject({ id }: { id: string }) {
+  try {
+    // Delete associated records first
+    await db.delete(projectChat).where(eq(projectChat.projectId, id));
+    await db.delete(projectFile).where(eq(projectFile.projectId, id));
+
+    return await db.delete(project).where(eq(project.id, id)).returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'delete_project',
+      'project.id': id,
+    });
+    throw new ChatSDKError('bad_request:database', 'Failed to delete project');
+  }
+}
+
+export async function getProjectById({ id }: { id: string }) {
+  try {
+    const [selectedProject] = await db
+      .select()
+      .from(project)
+      .where(eq(project.id, id));
+    return selectedProject;
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'get_project_by_id',
+      'project.id': id,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get project by id',
+    );
+  }
+}
+
+// Project-chat association operations
+export async function addChatToProject({
+  projectId,
+  chatId,
+}: {
+  projectId: string;
+  chatId: string;
+}) {
+  try {
+    return await db
+      .insert(projectChat)
+      .values({
+        projectId,
+        chatId,
+        addedAt: new Date(),
+      })
+      .returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'add_chat_to_project',
+      'project.id': projectId,
+      'chat.id': chatId,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to add chat to project',
+    );
+  }
+}
+
+export async function removeChatFromProject({
+  projectId,
+  chatId,
+}: {
+  projectId: string;
+  chatId: string;
+}) {
+  try {
+    return await db
+      .delete(projectChat)
+      .where(
+        and(
+          eq(projectChat.projectId, projectId),
+          eq(projectChat.chatId, chatId),
+        ),
+      )
+      .returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'remove_chat_from_project',
+      'project.id': projectId,
+      'chat.id': chatId,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to remove chat from project',
+    );
+  }
+}
+
+export async function getChatsByProject({ projectId }: { projectId: string }) {
+  try {
+    return await db
+      .select({
+        id: chat.id,
+        title: chat.title,
+        createdAt: chat.createdAt,
+        visibility: chat.visibility,
+        userId: chat.userId,
+        addedAt: projectChat.addedAt,
+      })
+      .from(projectChat)
+      .innerJoin(chat, eq(projectChat.chatId, chat.id))
+      .where(eq(projectChat.projectId, projectId))
+      .orderBy(desc(projectChat.addedAt));
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'get_chats_by_project',
+      'project.id': projectId,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get chats by project',
+    );
+  }
+}
+
+export async function getProjectsByChatId({ chatId }: { chatId: string }) {
+  try {
+    return await db
+      .select({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        userId: project.userId,
+        addedAt: projectChat.addedAt,
+      })
+      .from(projectChat)
+      .innerJoin(project, eq(projectChat.projectId, project.id))
+      .where(eq(projectChat.chatId, chatId))
+      .orderBy(desc(projectChat.addedAt));
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'get_projects_by_chat',
+      'chat.id': chatId,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get projects by chat',
+    );
+  }
+}
+
+// Project-file operations
+export async function addFileToProject({
+  projectId,
+  filename,
+  filePath,
+  fileType,
+  content,
+}: {
+  projectId: string;
+  filename: string;
+  filePath?: string;
+  fileType?: string;
+  content?: string;
+}) {
+  try {
+    return await db
+      .insert(projectFile)
+      .values({
+        projectId,
+        filename,
+        filePath,
+        fileType,
+        content,
+        uploadedAt: new Date(),
+      })
+      .returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'add_file_to_project',
+      'project.id': projectId,
+      'file.name': filename,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to add file to project',
+    );
+  }
+}
+
+export async function removeFileFromProject({ id }: { id: string }) {
+  try {
+    return await db
+      .delete(projectFile)
+      .where(eq(projectFile.id, id))
+      .returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'remove_file_from_project',
+      'file.id': id,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to remove file from project',
+    );
+  }
+}
+
+export async function getFilesByProject({ projectId }: { projectId: string }) {
+  try {
+    return await db
+      .select()
+      .from(projectFile)
+      .where(eq(projectFile.projectId, projectId))
+      .orderBy(desc(projectFile.uploadedAt));
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'get_files_by_project',
+      'project.id': projectId,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get files by project',
+    );
+  }
+}
+
+export async function getProjectFileById({ id }: { id: string }) {
+  try {
+    const [selectedFile] = await db
+      .select()
+      .from(projectFile)
+      .where(eq(projectFile.id, id));
+    return selectedFile;
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'get_project_file_by_id',
+      'file.id': id,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to get project file by id',
+    );
+  }
+}
+
+export async function updateProjectFile({
+  id,
+  filename,
+  content,
+}: {
+  id: string;
+  filename?: string;
+  content?: string;
+}) {
+  try {
+    const updateData: { filename?: string; content?: string } = {};
+
+    if (filename !== undefined) updateData.filename = filename;
+    if (content !== undefined) updateData.content = content;
+
+    return await db
+      .update(projectFile)
+      .set(updateData)
+      .where(eq(projectFile.id, id))
+      .returning();
+  } catch (error) {
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'update_project_file',
+      'file.id': id,
+    });
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to update project file',
     );
   }
 }

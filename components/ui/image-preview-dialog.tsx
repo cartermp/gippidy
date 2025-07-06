@@ -24,7 +24,8 @@ const ImagePreviewDialogOverlay = React.forwardRef<
     ref={ref}
   />
 ));
-ImagePreviewDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
+ImagePreviewDialogOverlay.displayName =
+  AlertDialogPrimitive.Overlay.displayName;
 
 const ImagePreviewDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
@@ -42,7 +43,8 @@ const ImagePreviewDialogContent = React.forwardRef<
     />
   </ImagePreviewDialogPortal>
 ));
-ImagePreviewDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
+ImagePreviewDialogContent.displayName =
+  AlertDialogPrimitive.Content.displayName;
 
 export {
   ImagePreviewDialog,

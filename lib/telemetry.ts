@@ -1,4 +1,4 @@
-import {SpanStatusCode, trace, type Span} from '@opentelemetry/api';
+import { SpanStatusCode, trace, type Span } from '@opentelemetry/api';
 
 const tracer = trace.getTracer('gippidy');
 
@@ -13,8 +13,11 @@ export interface ChatSpanAttributes {
   'user.is_rate_limited'?: boolean;
 }
 
-export function createChatSpan(name: string, attributes?: Partial<ChatSpanAttributes>): Span {
-  return tracer.startActiveSpan(name, sp => {
+export function createChatSpan(
+  name: string,
+  attributes?: Partial<ChatSpanAttributes>,
+): Span {
+  return tracer.startActiveSpan(name, (sp) => {
     if (attributes) {
       sp.setAttributes(attributes);
     }
@@ -22,7 +25,11 @@ export function createChatSpan(name: string, attributes?: Partial<ChatSpanAttrib
   });
 }
 
-export function recordError(span: any, error: Error, context?: Record<string, any>): void {
+export function recordError(
+  span: any,
+  error: Error,
+  context?: Record<string, any>,
+): void {
   span.recordException(error);
   span.setStatus({
     code: SpanStatusCode.ERROR,
@@ -38,7 +45,10 @@ export function getCurrentSpan(): Span | undefined {
   return trace.getActiveSpan();
 }
 
-export function recordErrorOnCurrentSpan(error: Error, context?: Record<string, any>): void {
+export function recordErrorOnCurrentSpan(
+  error: Error,
+  context?: Record<string, any>,
+): void {
   const span = getCurrentSpan();
   if (span) {
     recordError(span, error, context);

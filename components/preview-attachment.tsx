@@ -2,12 +2,7 @@ import type { Attachment } from 'ai';
 
 import { LoaderIcon, XIcon } from './icons';
 import { Button } from './ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogTrigger,
-} from './ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from './ui/dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 
 export const PreviewAttachment = ({

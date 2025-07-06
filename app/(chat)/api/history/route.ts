@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     return Response.json(chats);
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'get_chat_history',
+      operation: 'get_chat_history',
       'user.id': session.user.id,
       'pagination.limit': limit,
     });

@@ -1188,3 +1188,22 @@ export const WarningIcon = ({ size = 16 }: { size?: number }) => {
     </svg>
   );
 };
+
+export const FolderIcon = ({ size = 16 }: { size?: number }) => {
+  return (
+    <svg
+      height={size}
+      strokeLinejoin="round"
+      viewBox="0 0 16 16"
+      width={size}
+      style={{ color: 'currentcolor' }}
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M1.75 2.5A.75.75 0 0 0 1 3.25v9.5c0 .414.336.75.75.75h12.5a.75.75 0 0 0 .75-.75v-7a.75.75 0 0 0-.75-.75H8.085L6.835 3.5H1.75ZM0 3.25A1.75 1.75 0 0 1 1.75 1.5h5.085c.388 0 .747.167 1 .435L9.085 3.5h5.165A1.75 1.75 0 0 1 16 5.25v7.5A1.75 1.75 0 0 1 14.25 14.5H1.75A1.75 1.75 0 0 1 0 12.75V3.25Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+};

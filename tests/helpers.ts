@@ -1,14 +1,10 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import {
-  type APIRequestContext,
-  type Browser,
-  type BrowserContext,
-  expect,
-  type Page,
+import type {
+  APIRequestContext,
+  Browser,
+  BrowserContext,
+  Page,
 } from '@playwright/test';
 import { generateId } from 'ai';
-import { ChatPage } from './pages/chat';
 import { getUnixTime } from 'date-fns';
 
 export type UserContext = {
@@ -37,7 +33,7 @@ export async function createAuthenticatedContext({
       'user-agent': 'Playwright Test Browser',
     },
   });
-  
+
   const page = await context.newPage();
 
   // For integration tests, we mainly need the request context with auth headers

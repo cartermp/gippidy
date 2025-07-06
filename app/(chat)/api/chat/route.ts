@@ -8,6 +8,10 @@ import {
 import { auth } from '@/app/(auth)/auth';
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
 import {
+  buildProjectContext,
+  formatProjectContextForPrompt,
+} from '@/lib/ai/project-context';
+import {
   createStreamId,
   deleteChatById,
   getChatById,
@@ -171,6 +175,12 @@ export async function POST(request: Request) {
       country,
     };
 
+    // Build project context for this chat
+    const projectContext = await buildProjectContext(id);
+    const projectContextPrompt = projectContext
+      ? formatProjectContextForPrompt(projectContext)
+      : undefined;
+
     await saveMessages({
       messages: [
         {
@@ -207,6 +217,7 @@ export async function POST(request: Request) {
       'app.ai.model.input.system_prompt': systemPrompt({
         selectedChatModel,
         requestHints,
+        projectContext: projectContextPrompt,
       }),
       'app.ai.model.input.user_message': userText,
     });
@@ -323,7 +334,11 @@ export async function POST(request: Request) {
               }
             }
           },
-          system: systemPrompt({ selectedChatModel, requestHints }),
+          system: systemPrompt({
+            selectedChatModel,
+            requestHints,
+            projectContext: projectContextPrompt,
+          }),
           tools: {
             getWeather,
             createDocument: createDocument({ session, dataStream }),

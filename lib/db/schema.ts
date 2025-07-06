@@ -168,3 +168,50 @@ export const stream = pgTable(
 );
 
 export type Stream = InferSelectModel<typeof stream>;
+
+export const project = pgTable('Project', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  createdAt: timestamp('createdAt').notNull(),
+  updatedAt: timestamp('updatedAt').notNull(),
+  userId: uuid('userId')
+    .notNull()
+    .references(() => user.id),
+});
+
+export type Project = InferSelectModel<typeof project>;
+
+export const projectChat = pgTable(
+  'ProjectChat',
+  {
+    projectId: uuid('projectId')
+      .notNull()
+      .references(() => project.id),
+    chatId: uuid('chatId')
+      .notNull()
+      .references(() => chat.id),
+    addedAt: timestamp('addedAt').notNull(),
+  },
+  (table) => {
+    return {
+      pk: primaryKey({ columns: [table.projectId, table.chatId] }),
+    };
+  },
+);
+
+export type ProjectChat = InferSelectModel<typeof projectChat>;
+
+export const projectFile = pgTable('ProjectFile', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  projectId: uuid('projectId')
+    .notNull()
+    .references(() => project.id),
+  filename: varchar('filename', { length: 255 }).notNull(),
+  filePath: text('filePath'),
+  fileType: varchar('fileType', { length: 100 }),
+  content: text('content'),
+  uploadedAt: timestamp('uploadedAt').notNull(),
+});
+
+export type ProjectFile = InferSelectModel<typeof projectFile>;

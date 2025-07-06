@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     return Response.json(suggestions, { status: 200 });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'get_suggestions',
+      operation: 'get_suggestions',
       'document.id': documentId,
     });
     throw error;

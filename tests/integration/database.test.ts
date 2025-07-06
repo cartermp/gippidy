@@ -21,12 +21,12 @@ test.describe('Database Integration Tests', () => {
       // Test document creation via API
       const createResponse = await adaContext.request.post(
         `/api/document?id=${documentId}`,
-        { data: testDocument }
+        { data: testDocument },
       );
-      
+
       expect(createResponse.status()).toBe(200);
       const [savedDocument] = await createResponse.json();
-      
+
       expect(savedDocument).toMatchObject({
         id: documentId,
         title: testDocument.title,
@@ -40,9 +40,11 @@ test.describe('Database Integration Tests', () => {
 
     // Test document retrieval for each type
     for (const { id, kind } of createdDocuments) {
-      const getResponse = await adaContext.request.get(`/api/document?id=${id}`);
+      const getResponse = await adaContext.request.get(
+        `/api/document?id=${id}`,
+      );
       expect(getResponse.status()).toBe(200);
-      
+
       const retrievedDocuments = await getResponse.json();
       expect(retrievedDocuments).toHaveLength(1);
       expect(retrievedDocuments[0].kind).toBe(kind);
@@ -61,9 +63,9 @@ test.describe('Database Integration Tests', () => {
     // This should return an error due to enum constraint
     const response = await adaContext.request.post(
       `/api/document?id=${documentId}`,
-      { data: invalidDocument }
+      { data: invalidDocument },
     );
-    
+
     // Should fail with bad request or validation error
     expect(response.status()).not.toBe(200);
   });
@@ -80,7 +82,7 @@ test.describe('Database Integration Tests', () => {
 
     const firstResponse = await adaContext.request.post(
       `/api/document?id=${documentId}`,
-      { data: firstVersion }
+      { data: firstVersion },
     );
     expect(firstResponse.status()).toBe(200);
     const [savedFirst] = await firstResponse.json();
@@ -95,25 +97,30 @@ test.describe('Database Integration Tests', () => {
 
     const secondResponse = await adaContext.request.post(
       `/api/document?id=${documentId}`,
-      { data: secondVersion }
+      { data: secondVersion },
     );
     expect(secondResponse.status()).toBe(200);
     const [savedSecond] = await secondResponse.json();
     expect(savedSecond.content).toBe('Second version content');
 
     // Should have two versions
-    const getResponse = await adaContext.request.get(`/api/document?id=${documentId}`);
+    const getResponse = await adaContext.request.get(
+      `/api/document?id=${documentId}`,
+    );
     expect(getResponse.status()).toBe(200);
     const allVersions = await getResponse.json();
     expect(allVersions).toHaveLength(2);
-    
+
     // Verify versions are ordered by creation time
     const firstTime = new Date(allVersions[0].createdAt).getTime();
     const secondTime = new Date(allVersions[1].createdAt).getTime();
     expect(firstTime).toBeLessThan(secondTime);
   });
 
-  test('enforces user ownership constraints', async ({ adaContext, babbageContext }) => {
+  test('enforces user ownership constraints', async ({
+    adaContext,
+    babbageContext,
+  }) => {
     const documentId = generateUUID();
 
     // Create document with Ada
@@ -125,12 +132,14 @@ test.describe('Database Integration Tests', () => {
 
     const adaResponse = await adaContext.request.post(
       `/api/document?id=${documentId}`,
-      { data: documentA }
+      { data: documentA },
     );
     expect(adaResponse.status()).toBe(200);
 
     // Try to access Ada's document with Babbage - should be forbidden
-    const babbageGetResponse = await babbageContext.request.get(`/api/document?id=${documentId}`);
+    const babbageGetResponse = await babbageContext.request.get(
+      `/api/document?id=${documentId}`,
+    );
     expect(babbageGetResponse.status()).toBe(403);
 
     // Try to update Ada's document with Babbage - should be forbidden
@@ -142,12 +151,14 @@ test.describe('Database Integration Tests', () => {
 
     const babbageUpdateResponse = await babbageContext.request.post(
       `/api/document?id=${documentId}`,
-      { data: documentB }
+      { data: documentB },
     );
     expect(babbageUpdateResponse.status()).toBe(403);
 
     // Ada should still be able to access her document
-    const adaGetResponse = await adaContext.request.get(`/api/document?id=${documentId}`);
+    const adaGetResponse = await adaContext.request.get(
+      `/api/document?id=${documentId}`,
+    );
     expect(adaGetResponse.status()).toBe(200);
     const [retrievedDoc] = await adaGetResponse.json();
     expect(retrievedDoc.content).toBe('Created by Ada');
@@ -165,7 +176,7 @@ test.describe('Database Integration Tests', () => {
 
     const noTitleResponse = await adaContext.request.post(
       `/api/document?id=${documentId}`,
-      { data: noTitle }
+      { data: noTitle },
     );
     expect(noTitleResponse.status()).not.toBe(200);
 
@@ -178,7 +189,7 @@ test.describe('Database Integration Tests', () => {
 
     const noKindResponse = await adaContext.request.post(
       `/api/document?id=${generateUUID()}`,
-      { data: noKind }
+      { data: noKind },
     );
     expect(noKindResponse.status()).not.toBe(200);
   });
@@ -195,13 +206,15 @@ test.describe('Database Integration Tests', () => {
 
     const createResponse = await adaContext.request.post(
       `/api/document?id=${documentId}`,
-      { data: largeDocument }
+      { data: largeDocument },
     );
     expect(createResponse.status()).toBe(200);
     const [savedDocument] = await createResponse.json();
     expect(savedDocument.content).toBe(largeContent);
 
-    const getResponse = await adaContext.request.get(`/api/document?id=${documentId}`);
+    const getResponse = await adaContext.request.get(
+      `/api/document?id=${documentId}`,
+    );
     expect(getResponse.status()).toBe(200);
     const [retrievedDocument] = await getResponse.json();
     expect(retrievedDocument.content).toBe(largeContent);

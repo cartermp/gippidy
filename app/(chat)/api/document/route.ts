@@ -1,5 +1,4 @@
 import { auth } from '@/app/(auth)/auth';
-import type { ArtifactKind } from '@/components/artifact';
 import {
   deleteDocumentsByIdAfterTimestamp,
   getDocumentsById,
@@ -48,7 +47,7 @@ export async function GET(request: Request) {
     return Response.json(documents, { status: 200 });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'get_document',
+      operation: 'get_document',
       'document.id': id,
     });
     throw error;
@@ -72,7 +71,7 @@ export async function POST(request: Request) {
     return new ChatSDKError('not_found:document').toResponse();
   }
 
-  let requestBody;
+  let requestBody: z.infer<typeof documentRequestSchema>;
   try {
     const json = await request.json();
     requestBody = documentRequestSchema.parse(json);
@@ -107,7 +106,7 @@ export async function POST(request: Request) {
     return Response.json(document, { status: 200 });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'save_document',
+      operation: 'save_document',
       'document.id': id,
       'document.kind': kind,
     });
@@ -157,9 +156,9 @@ export async function DELETE(request: Request) {
     return Response.json(documentsDeleted, { status: 200 });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'delete_document_versions',
+      operation: 'delete_document_versions',
       'document.id': id,
-      'timestamp': timestamp,
+      timestamp: timestamp,
     });
     throw error;
   }

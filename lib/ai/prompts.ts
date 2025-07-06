@@ -58,17 +58,20 @@ You are a friendly assistant with advanced reasoning capabilities! Keep your res
 export const systemPrompt = ({
   selectedChatModel,
   requestHints,
+  projectContext,
 }: {
   selectedChatModel: string;
   requestHints: RequestHints;
+  projectContext?: string;
 }) => {
   const requestPrompt = getRequestPromptFromHints(requestHints);
+  const projectPrompt = projectContext || '';
 
   if (selectedChatModel === 'chat-model-reasoning') {
     // o4-mini handles reasoning internally, just use regular prompt
-    return `${reasoningPrompt}\n\n${requestPrompt}\n\n${artifactsPrompt}`;
+    return `${reasoningPrompt}\n\n${requestPrompt}${projectPrompt}\n\n${artifactsPrompt}`;
   } else {
-    return `${regularPrompt}\n\n${requestPrompt}\n\n${artifactsPrompt}`;
+    return `${regularPrompt}\n\n${requestPrompt}${projectPrompt}\n\n${artifactsPrompt}`;
   }
 };
 

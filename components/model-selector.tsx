@@ -75,9 +75,11 @@ export function ModelSelector({
                 startTransition(() => {
                   const previousModel = selectedChatModel?.name || 'Unknown';
                   const newModel = chatModel.name;
-                  
-                  console.log(`Model changed: ${previousModel} → ${newModel} (${id})`);
-                  
+
+                  console.log(
+                    `Model changed: ${previousModel} → ${newModel} (${id})`,
+                  );
+
                   setOptimisticModelId(id);
                   saveChatModelAsCookie(id);
                 });

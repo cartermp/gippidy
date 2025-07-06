@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     return Response.json(votes, { status: 200 });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'get_votes',
+      operation: 'get_votes',
       'chat.id': chatId,
     });
     throw error;
@@ -84,7 +84,7 @@ export async function PATCH(request: Request) {
     return new Response('Message voted', { status: 200 });
   } catch (error) {
     recordErrorOnCurrentSpan(error as Error, {
-      'operation': 'vote_message',
+      operation: 'vote_message',
       'chat.id': chatId,
       'message.id': messageId,
       'vote.type': type,

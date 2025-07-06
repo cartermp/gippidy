@@ -29,10 +29,12 @@ export async function middleware(request: NextRequest) {
   }
 
   // Allow public assets
-  if (pathname.startsWith('/_next') || 
-      pathname.startsWith('/favicon.ico') || 
-      pathname.startsWith('/sitemap.xml') || 
-      pathname.startsWith('/robots.txt')) {
+  if (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon.ico') ||
+    pathname.startsWith('/sitemap.xml') ||
+    pathname.startsWith('/robots.txt')
+  ) {
     return NextResponse.next();
   }
 
@@ -43,7 +45,7 @@ export async function middleware(request: NextRequest) {
   });
 
   // Redirect to login if no token OR if it's an old guest user token
-  if (!token || (token.email?.toString().startsWith('guest-'))) {
+  if (!token || token.email?.toString().startsWith('guest-')) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 

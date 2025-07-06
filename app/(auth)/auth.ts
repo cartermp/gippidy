@@ -63,12 +63,14 @@ const nextAuth = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        
+
         // Ensure user exists in database (in case they were deleted or JWT persisted after failed creation)
         try {
           const dbUsers = await getUser(session.user.email || '');
           if (dbUsers.length === 0) {
-            const [newUser] = await createUserWithEmail(session.user.email || '');
+            const [newUser] = await createUserWithEmail(
+              session.user.email || '',
+            );
             session.user.id = newUser.id;
           } else {
             // Make sure we're using the correct database ID
@@ -102,21 +104,21 @@ export async function auth() {
     const userAgent = headerStore.get('user-agent') || '';
     const testUserId = headerStore.get('x-test-user-id') || '';
     const testUserEmail = headerStore.get('x-test-user-email') || '';
-    
+
     // Check if this is a Playwright test request
     if (userAgent.includes('Playwright') && testUserEmail) {
       // Ensure test user exists in database
       try {
         const dbUsers = await getUser(testUserEmail);
         let userId = testUserId;
-        
+
         if (dbUsers.length === 0) {
           const [newUser] = await createUserWithEmail(testUserEmail);
           userId = newUser.id;
         } else {
           userId = dbUsers[0].id;
         }
-        
+
         return {
           user: {
             id: userId,
@@ -131,7 +133,7 @@ export async function auth() {
       }
     }
   }
-  
+
   // In production/development, use normal NextAuth
   return nextAuth.auth();
 }
