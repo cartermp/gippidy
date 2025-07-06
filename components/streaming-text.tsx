@@ -1,67 +1,67 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
 
 interface StreamingTextProps {
   children: string;
   isStreaming: boolean;
+  className?: string;
 }
 
-export function StreamingText({ children, isStreaming }: StreamingTextProps) {
-  const [displayedText, setDisplayedText] = useState('');
-  const animationRef = useRef<NodeJS.Timeout>();
-
-  useEffect(() => {
-    if (!isStreaming) {
-      if (animationRef.current) {
-        clearTimeout(animationRef.current);
-        animationRef.current = undefined;
-      }
-      setDisplayedText(children);
-      return;
+const keyframes = `
+  @keyframes text-reveal {
+    from {
+      background-size: 0% 100%;
     }
-
-    // Simple test: just add one character every 100ms
-    if (displayedText.length < children.length && !animationRef.current) {
-      const animate = () => {
-        setDisplayedText((current) => {
-          if (current.length < children.length) {
-            const newText = children.slice(0, current.length + 1);
-            return newText;
-          }
-          return current;
-        });
-
-        // Schedule next frame
-        setDisplayedText((current) => {
-          if (current.length < children.length) {
-            animationRef.current = setTimeout(() => {
-              animationRef.current = undefined;
-              animate();
-            }, 100);
-          } else {
-            animationRef.current = undefined;
-          }
-          return current;
-        });
-      };
-
-      animate();
+    to {
+      background-size: 100% 100%;
     }
-  }, [children, isStreaming, displayedText.length]);
+  }
+`;
 
-  useEffect(() => {
-    return () => {
-      if (animationRef.current) {
-        clearTimeout(animationRef.current);
-      }
-    };
-  }, []);
+const streamingRevealStyle = `
+  .streaming-text-reveal.prose {
+    /* Use the --prose-body variable from Tailwind Typography for the text color */
+    --text-color: var(--prose-body);
+    color: transparent !important; /* Override prose color to make it transparent */
+    background: linear-gradient(to right, var(--text-color), var(--text-color));
+    background-repeat: no-repeat;
+    background-clip: text;
+    -webkit-background-clip: text;
+    background-size: 0% 100%;
+    animation: text-reveal linear forwards;
+    animation-duration: var(--animation-duration);
+  }
+`;
+
+export function StreamingText({
+  children,
+  isStreaming,
+  className,
+}: StreamingTextProps) {
+  // Estimate duration based on a reading speed of ~400 words per minute
+  // Average word length is ~5 chars, so ~2000 chars per minute or ~33 chars per second.
+  // We'll use a slightly faster rate for a better feel.
+  const animationDuration = `${Math.max(0.5, children.length / 40)}s`;
+
+  if (!isStreaming) {
+    return <Markdown>{children}</Markdown>;
+  }
 
   return (
-    <div className="relative">
-      <Markdown>{displayedText}</Markdown>
-    </div>
+    <>
+      <style>{keyframes + streamingRevealStyle}</style>
+      <Markdown
+        className={cn('streaming-text-reveal', className)}
+        style={
+          {
+            '--animation-duration': animationDuration,
+          } as React.CSSProperties
+        }
+      >
+        {children}
+      </Markdown>
+    </>
   );
 }

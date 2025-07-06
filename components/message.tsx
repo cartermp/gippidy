@@ -127,14 +127,16 @@ const PurePreviewMessage = ({
                       <div
                         data-testid="message-content"
                         className={cn('flex flex-col gap-4', {
-                          'bg-primary text-primary-foreground px-3 py-2 rounded-xl':
+                          'bg-primary text-primary-foreground px-3 py-2 rounded-xl not-prose':
                             message.role === 'user',
                         })}
                       >
                         {message.role === 'assistant' ? (
-                          <StreamingText isStreaming={isLoading}>
-                            {sanitizeText(part.text)}
-                          </StreamingText>
+                          <div className="prose dark:prose-invert max-w-none">
+                            <StreamingText isStreaming={isLoading}>
+                              {sanitizeText(part.text)}
+                            </StreamingText>
+                          </div>
                         ) : (
                           <Markdown>{sanitizeText(part.text)}</Markdown>
                         )}
