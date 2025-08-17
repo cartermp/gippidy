@@ -160,8 +160,47 @@ function buildProjectSummary(
   if (files.length > 0) {
     const fileInfo = files
       .map((f) => {
-        const content = f.content ? ` (${f.content.slice(0, 100)}...)` : '';
-        return `- ${f.filename}${content}`;
+        // For text files, show preview of content
+        // For binary files, just show metadata
+        const isTextFile =
+          f.fileType?.startsWith('text/') ||
+          f.filename.endsWith('.md') ||
+          f.filename.endsWith('.txt') ||
+          f.filename.endsWith('.json') ||
+          f.filename.endsWith('.csv') ||
+          f.filename.endsWith('.html') ||
+          f.filename.endsWith('.xml') ||
+          f.filename.endsWith('.yaml') ||
+          f.filename.endsWith('.yml') ||
+          f.filename.endsWith('.js') ||
+          f.filename.endsWith('.ts') ||
+          f.filename.endsWith('.tsx') ||
+          f.filename.endsWith('.jsx') ||
+          f.filename.endsWith('.py') ||
+          f.filename.endsWith('.java') ||
+          f.filename.endsWith('.cpp') ||
+          f.filename.endsWith('.c') ||
+          f.filename.endsWith('.h') ||
+          f.filename.endsWith('.css') ||
+          f.filename.endsWith('.scss') ||
+          f.filename.endsWith('.sass') ||
+          f.filename.endsWith('.less') ||
+          f.filename.endsWith('.sql') ||
+          f.filename.endsWith('.sh') ||
+          f.filename.endsWith('.bash') ||
+          f.filename.endsWith('.zsh') ||
+          f.filename.endsWith('.fish') ||
+          f.filename.endsWith('.ps1') ||
+          f.filename.endsWith('.bat') ||
+          f.filename.endsWith('.cmd') ||
+          f.filename.endsWith('.dockerfile') ||
+          f.filename.endsWith('.gitignore') ||
+          f.filename.endsWith('.env');
+
+        const content =
+          isTextFile && f.content ? ` (${f.content.slice(0, 100)}...)` : '';
+        const fileType = f.fileType ? ` [${f.fileType}]` : '';
+        return `- ${f.filename}${fileType}${content}`;
       })
       .join('\n');
     sections.push(`Files:\n${fileInfo}`);

@@ -196,14 +196,68 @@ export function ProjectView({ project, user }: ProjectViewProps) {
 
     setIsUploadingFile(true);
     try {
-      const content = await file.text();
+      let content = '';
+
+      // Handle different file types
+      if (
+        file.type.startsWith('text/') ||
+        file.name.endsWith('.md') ||
+        file.name.endsWith('.json') ||
+        file.name.endsWith('.csv') ||
+        file.name.endsWith('.html') ||
+        file.name.endsWith('.xml') ||
+        file.name.endsWith('.yaml') ||
+        file.name.endsWith('.yml') ||
+        file.name.endsWith('.js') ||
+        file.name.endsWith('.ts') ||
+        file.name.endsWith('.tsx') ||
+        file.name.endsWith('.jsx') ||
+        file.name.endsWith('.py') ||
+        file.name.endsWith('.java') ||
+        file.name.endsWith('.cpp') ||
+        file.name.endsWith('.c') ||
+        file.name.endsWith('.h') ||
+        file.name.endsWith('.css') ||
+        file.name.endsWith('.scss') ||
+        file.name.endsWith('.sass') ||
+        file.name.endsWith('.less') ||
+        file.name.endsWith('.sql') ||
+        file.name.endsWith('.sh') ||
+        file.name.endsWith('.bash') ||
+        file.name.endsWith('.zsh') ||
+        file.name.endsWith('.fish') ||
+        file.name.endsWith('.ps1') ||
+        file.name.endsWith('.bat') ||
+        file.name.endsWith('.cmd') ||
+        file.name.endsWith('.dockerfile') ||
+        file.name.endsWith('.gitignore') ||
+        file.name.endsWith('.env')
+      ) {
+        // Read as text for text-based files
+        content = await file.text();
+      } else {
+        // For binary files (PDFs, images, etc), convert to base64
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        
+        // Convert to base64 in chunks to avoid call stack overflow
+        let binaryString = '';
+        const chunkSize = 8192; // Process in 8KB chunks
+        
+        for (let i = 0; i < uint8Array.length; i += chunkSize) {
+          const chunk = uint8Array.slice(i, i + chunkSize);
+          binaryString += String.fromCharCode(...chunk);
+        }
+        
+        content = btoa(binaryString);
+      }
 
       const response = await fetch(`/api/projects/${project.id}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           filename: file.name,
-          fileType: file.type || 'text/plain',
+          fileType: file.type || 'application/octet-stream',
           content: content,
         }),
       });
@@ -446,7 +500,6 @@ export function ProjectView({ project, user }: ProjectViewProps) {
         onChange={handleFileUpload}
         disabled={isUploadingFile}
         className="hidden"
-        accept=".txt,.md,.json,.csv,.html,.xml,.yaml,.yml,.js,.ts,.tsx,.jsx,.py,.java,.cpp,.c,.h,.css,.scss,.sass,.less,.sql,.sh,.bash,.zsh,.fish,.ps1,.bat,.cmd,.dockerfile,.gitignore,.env"
       />
     </div>
   );
