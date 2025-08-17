@@ -9,6 +9,8 @@ import {
   titleModel,
 } from './models.test';
 
+export const gpt5chat = openai('gpt-5-chat-latest');
+export const gpt5 = openai('gpt-5');
 export const gpt4o = openai('gpt-4o');
 export const gpt41nano = openai('gpt-4.1-nano');
 export const gpt41 = openai('gpt-4.1');
@@ -29,8 +31,8 @@ export const myProvider = isTestEnvironment
   : customProvider({
       languageModels: {
         'chat-model': gpt4o,
-        'chat-model-reasoning': o4mini, // Use actual reasoning model
-        'title-model': geminiFlash,
-        'artifact-model': geminiFlash,
+        'chat-model-reasoning': gpt4o,
+        'title-model': gpt5chat,
+        'artifact-model': gpt5chat,
       },
     });
