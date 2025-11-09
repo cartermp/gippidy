@@ -14,6 +14,10 @@ export class ChatPage {
     return this.page.getByTestId('stop-button');
   }
 
+  public get streamingText() {
+    return this.page.getByTestId('streaming-text');
+  }
+
   public get multimodalInput() {
     return this.page.getByTestId('multimodal-input');
   }

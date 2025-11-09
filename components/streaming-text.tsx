@@ -1,5 +1,14 @@
 'use client';
 
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
+
 import { cn } from '@/lib/utils';
 import { Markdown } from './markdown';
 
@@ -35,32 +44,149 @@ const streamingRevealStyle = `
   }
 `;
 
+const streamingTransitionStyle = `
+  .streaming-text-reveal {
+    transition: opacity 180ms ease-out;
+  }
+
+  .streaming-text-reveal[data-updating='true'] {
+    opacity: 0.92;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .streaming-text-reveal {
+      transition: none;
+      animation-duration: 0s !important;
+    }
+  }
+`;
+
+const FLUSH_INTERVAL_MS = 48;
+const TRANSITION_TIMEOUT_MS = 200;
+
 export function StreamingText({
   children,
   isStreaming,
   className,
 }: StreamingTextProps) {
-  // Estimate duration based on a reading speed of ~400 words per minute
-  // Average word length is ~5 chars, so ~2000 chars per minute or ~33 chars per second.
-  // We'll use a slightly faster rate for a better feel.
-  const animationDuration = `${Math.max(0.5, children.length / 40)}s`;
+  const [renderedText, setRenderedText] = useState(children);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const queueRef = useRef<string[]>([]);
+  const intervalRef = useRef<number | null>(null);
+  const transitionTimeoutRef = useRef<number | null>(null);
+  const latestRenderedTextRef = useRef(children);
+  const wasStreamingRef = useRef(isStreaming);
+
+  const flushQueue = useCallback(
+    (forcedValue?: string) => {
+      const queue = queueRef.current;
+      const nextValue =
+        forcedValue ?? (queue.length > 0 ? queue[queue.length - 1] : undefined);
+
+      if (nextValue === undefined) {
+        return;
+      }
+
+      queueRef.current = [];
+
+      if (latestRenderedTextRef.current === nextValue) {
+        return;
+      }
+
+      latestRenderedTextRef.current = nextValue;
+      setRenderedText(nextValue);
+      setIsTransitioning(true);
+
+      if (transitionTimeoutRef.current !== null) {
+        window.clearTimeout(transitionTimeoutRef.current);
+      }
+
+      transitionTimeoutRef.current = window.setTimeout(() => {
+        setIsTransitioning(false);
+        transitionTimeoutRef.current = null;
+      }, TRANSITION_TIMEOUT_MS);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (wasStreamingRef.current !== isStreaming) {
+      wasStreamingRef.current = isStreaming;
+
+      if (isStreaming) {
+        queueRef.current = [];
+        latestRenderedTextRef.current = '';
+        setRenderedText('');
+        setIsTransitioning(false);
+      }
+    }
+  }, [isStreaming]);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current !== null) {
+        window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+
+      if (transitionTimeoutRef.current !== null) {
+        window.clearTimeout(transitionTimeoutRef.current);
+        transitionTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      flushQueue(children);
+
+      if (intervalRef.current !== null) {
+        window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+
+      queueRef.current = [];
+      return;
+    }
+
+    const lastQueued = queueRef.current[queueRef.current.length - 1];
+    if (lastQueued !== children) {
+      queueRef.current.push(children);
+    }
+
+    if (intervalRef.current === null) {
+      intervalRef.current = window.setInterval(() => {
+        flushQueue();
+      }, FLUSH_INTERVAL_MS);
+    }
+  }, [children, flushQueue, isStreaming]);
+
+  const animationDuration = useMemo(
+    () => `${Math.max(0.5, renderedText.length / 40)}s`,
+    [renderedText],
+  );
 
   if (!isStreaming) {
-    return <Markdown>{children}</Markdown>;
+    return (
+      <Markdown data-streaming="false" data-testid="streaming-text" className={className}>
+        {children}
+      </Markdown>
+    );
   }
 
   return (
     <>
-      <style>{keyframes + streamingRevealStyle}</style>
+      <style>{keyframes + streamingRevealStyle + streamingTransitionStyle}</style>
       <Markdown
+        data-streaming="true"
+        data-testid="streaming-text"
+        data-updating={isTransitioning ? 'true' : 'false'}
         className={cn('streaming-text-reveal', className)}
-        style={
-          {
-            '--animation-duration': animationDuration,
-          } as React.CSSProperties
-        }
+        style={{
+          '--animation-duration': animationDuration,
+        } as CSSProperties}
       >
-        {children}
+        {renderedText}
       </Markdown>
     </>
   );

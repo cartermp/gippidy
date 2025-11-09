@@ -17,6 +17,22 @@ test.describe('Chat activity', () => {
     expect(assistantMessage.content).toContain("It's just green duh!");
   });
 
+  test('Assistant streaming text exposes coalesced updates', async () => {
+    await chatPage.sendUserMessage('Tell me about smooth streaming updates.');
+
+    const streamingText = chatPage.streamingText.last();
+
+    await expect(streamingText).toHaveAttribute('data-streaming', 'true');
+
+    await expect
+      .poll(async () => streamingText.getAttribute('data-updating'))
+      .toBe('true');
+
+    await chatPage.isGenerationComplete();
+
+    await expect(streamingText).toHaveAttribute('data-streaming', 'false');
+  });
+
   test('Redirect to /chat/:id after submitting message', async () => {
     await chatPage.sendUserMessage('Why is grass green?');
     await chatPage.isGenerationComplete();
