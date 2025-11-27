@@ -1,13 +1,39 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { useState, useTransition } from 'react';
 import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { CatButtholeIcon } from '@/components/cat-butthole-icon';
 
 export default function Page() {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [accessCode, setAccessCode] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  const previewLoginEnabled =
+    process.env.NEXT_PUBLIC_ENABLE_PREVIEW_LOGIN === 'true';
+
   const handleGoogleSignIn = () => {
     signIn('google', { callbackUrl: '/' });
+  };
+
+  const handlePreviewLogin = () => {
+    setPreviewError('');
+    startTransition(async () => {
+      const result = await signIn('credentials', {
+        code: accessCode,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        setPreviewError('Invalid preview access code.');
+        return;
+      }
+
+      router.push('/');
+    });
   };
 
   return (
@@ -113,6 +139,46 @@ export default function Page() {
               </svg>
               Continue with Google
             </Button>
+
+            {previewLoginEnabled && (
+              <div className="space-y-3 rounded-xl border border-border p-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground">
+                    Preview access
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Use your preview access code if Google login is unavailable
+                    on this deployment.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Access code
+                  </label>
+                  <input
+                    type="password"
+                    value={accessCode}
+                    onChange={(event) => setAccessCode(event.target.value)}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder="Enter code"
+                    autoComplete="off"
+                  />
+                  {previewError ? (
+                    <p className="text-xs text-destructive">{previewError}</p>
+                  ) : null}
+                </div>
+
+                <Button
+                  onClick={handlePreviewLogin}
+                  className="w-full"
+                  size="sm"
+                  disabled={isPending}
+                >
+                  {isPending ? 'Signing in…' : 'Sign in with preview code'}
+                </Button>
+              </div>
+            )}
 
             <div className="text-center">
               <p className="text-xs text-muted-foreground">

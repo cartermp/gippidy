@@ -1,4 +1,5 @@
 import NextAuth, { type DefaultSession } from 'next-auth';
+import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import { authConfig } from './auth.config';
 import { getUser, createUserWithEmail } from '@/lib/db/queries';
@@ -22,13 +23,49 @@ const nextAuth = NextAuth({
       // biome-ignore lint/style/noNonNullAssertion: Required environment variables
       clientSecret: process.env.GOOGLE_SECRET!,
     }),
+    ...(process.env.ENABLE_PREVIEW_LOGIN === 'true'
+      ? [
+          Credentials({
+            name: 'Preview access',
+            credentials: {
+              code: { label: 'Access code', type: 'password' },
+            },
+            async authorize(credentials) {
+              const previewCode = process.env.PREVIEW_LOGIN_CODE?.trim();
+              const previewEmail = process.env.PREVIEW_LOGIN_EMAIL?.trim();
+
+              if (!previewCode || !previewEmail) {
+                return null;
+              }
+
+              if (credentials?.code?.trim() !== previewCode) {
+                return null;
+              }
+
+              const dbUsers = await getUser(previewEmail);
+              let userId = dbUsers[0]?.id;
+
+              if (!userId) {
+                const [newUser] = await createUserWithEmail(previewEmail);
+                userId = newUser.id;
+              }
+
+              return {
+                id: userId,
+                email: previewEmail,
+                name: 'Preview User',
+              };
+            },
+          }),
+        ]
+      : []),
   ],
   callbacks: {
-    async signIn({ user }) {
+    async signIn({ user, account }) {
       const allowedEmail = process.env.ALLOWED_EMAIL?.trim();
       const userEmail = user.email?.trim();
 
-      if (allowedEmail !== userEmail) {
+      if (account?.provider === 'google' && allowedEmail !== userEmail) {
         return false;
       }
 
