@@ -33,12 +33,16 @@ const nextAuth = NextAuth({
             async authorize(credentials) {
               const previewCode = process.env.PREVIEW_LOGIN_CODE?.trim();
               const previewEmail = process.env.PREVIEW_LOGIN_EMAIL?.trim();
+              const providedCode =
+                typeof credentials?.code === 'string'
+                  ? credentials.code.trim()
+                  : undefined;
 
               if (!previewCode || !previewEmail) {
                 return null;
               }
 
-              if (credentials?.code?.trim() !== previewCode) {
+              if (providedCode !== previewCode) {
                 return null;
               }
 
