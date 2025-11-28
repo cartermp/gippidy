@@ -14,16 +14,22 @@ declare module 'next-auth' {
   }
 }
 
+const previewLoginEnabled = process.env.ENABLE_PREVIEW_LOGIN === 'true';
+
 const nextAuth = NextAuth({
   ...authConfig,
   providers: [
-    Google({
-      // biome-ignore lint/style/noNonNullAssertion: Required environment variables
-      clientId: process.env.GOOGLE_ID!,
-      // biome-ignore lint/style/noNonNullAssertion: Required environment variables
-      clientSecret: process.env.GOOGLE_SECRET!,
-    }),
-    ...(process.env.ENABLE_PREVIEW_LOGIN === 'true'
+    ...(previewLoginEnabled
+      ? []
+      : [
+          Google({
+            // biome-ignore lint/style/noNonNullAssertion: Required environment variables
+            clientId: process.env.GOOGLE_ID!,
+            // biome-ignore lint/style/noNonNullAssertion: Required environment variables
+            clientSecret: process.env.GOOGLE_SECRET!,
+          }),
+        ]),
+    ...(previewLoginEnabled
       ? [
           Credentials({
             name: 'Preview access',
