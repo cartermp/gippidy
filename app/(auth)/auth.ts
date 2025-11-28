@@ -1,4 +1,5 @@
 import NextAuth, { type DefaultSession } from 'next-auth';
+import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import { authConfig } from './auth.config';
 import { getUser, createUserWithEmail } from '@/lib/db/queries';
@@ -13,22 +14,68 @@ declare module 'next-auth' {
   }
 }
 
+const previewLoginEnabled = process.env.ENABLE_PREVIEW_LOGIN === 'true';
+
 const nextAuth = NextAuth({
   ...authConfig,
   providers: [
-    Google({
-      // biome-ignore lint/style/noNonNullAssertion: Required environment variables
-      clientId: process.env.GOOGLE_ID!,
-      // biome-ignore lint/style/noNonNullAssertion: Required environment variables
-      clientSecret: process.env.GOOGLE_SECRET!,
-    }),
+    ...(previewLoginEnabled
+      ? []
+      : [
+          Google({
+            // biome-ignore lint/style/noNonNullAssertion: Required environment variables
+            clientId: process.env.GOOGLE_ID!,
+            // biome-ignore lint/style/noNonNullAssertion: Required environment variables
+            clientSecret: process.env.GOOGLE_SECRET!,
+          }),
+        ]),
+    ...(previewLoginEnabled
+      ? [
+          Credentials({
+            name: 'Preview access',
+            credentials: {
+              code: { label: 'Access code', type: 'password' },
+            },
+            async authorize(credentials) {
+              const previewCode = process.env.PREVIEW_LOGIN_CODE?.trim();
+              const previewEmail = process.env.PREVIEW_LOGIN_EMAIL?.trim();
+              const providedCode =
+                typeof credentials?.code === 'string'
+                  ? credentials.code.trim()
+                  : undefined;
+
+              if (!previewCode || !previewEmail) {
+                return null;
+              }
+
+              if (providedCode !== previewCode) {
+                return null;
+              }
+
+              const dbUsers = await getUser(previewEmail);
+              let userId = dbUsers[0]?.id;
+
+              if (!userId) {
+                const [newUser] = await createUserWithEmail(previewEmail);
+                userId = newUser.id;
+              }
+
+              return {
+                id: userId,
+                email: previewEmail,
+                name: 'Preview User',
+              };
+            },
+          }),
+        ]
+      : []),
   ],
   callbacks: {
-    async signIn({ user }) {
+    async signIn({ user, account }) {
       const allowedEmail = process.env.ALLOWED_EMAIL?.trim();
       const userEmail = user.email?.trim();
 
-      if (allowedEmail !== userEmail) {
+      if (account?.provider === 'google' && allowedEmail !== userEmail) {
         return false;
       }
 
