@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { FormEvent, useState, useTransition } from 'react';
 import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
@@ -19,7 +19,8 @@ export default function Page() {
     signIn('google', { callbackUrl: '/' });
   };
 
-  const handlePreviewLogin = () => {
+  const handlePreviewLogin = (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setPreviewError('');
     startTransition(async () => {
       const result = await signIn('credentials', {
@@ -118,7 +119,10 @@ export default function Page() {
             </div>
 
             {previewLoginEnabled ? (
-              <div className="space-y-3 rounded-xl border border-border p-4">
+              <form
+                className="space-y-3 rounded-xl border border-border p-4"
+                onSubmit={handlePreviewLogin}
+              >
                 <div>
                   <h4 className="text-sm font-semibold text-foreground">
                     Preview access
@@ -147,14 +151,14 @@ export default function Page() {
                 </div>
 
                 <Button
-                  onClick={handlePreviewLogin}
+                  type="submit"
                   className="w-full"
                   size="sm"
                   disabled={isPending}
                 >
                   {isPending ? 'Signing in…' : 'Sign in with preview code'}
                 </Button>
-              </div>
+              </form>
             ) : (
               <Button
                 onClick={handleGoogleSignIn}
