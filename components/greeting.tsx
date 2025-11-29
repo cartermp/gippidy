@@ -19,15 +19,16 @@ export const Greeting = () => {
         <div
           role="status"
           aria-live="polite"
-          aria-label="Loading chat history…"
-          className="flex items-center gap-4"
+          className="flex items-center gap-3 text-muted-foreground"
         >
           <CatButtholeIcon
             size={72}
             className="animate-cat-spin drop-shadow-sm"
             aria-hidden="true"
           />
-          <span className="sr-only">Loading chat history…</span>
+          <span className="text-lg font-medium leading-none">
+            Loading chat history…
+          </span>
         </div>
 
         <div className="text-2xl font-semibold text-foreground">
