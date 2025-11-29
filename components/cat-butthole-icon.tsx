@@ -1,11 +1,24 @@
+import type { ComponentPropsWithoutRef } from 'react';
+
+import { cn } from '@/lib/utils';
+
+type CatButtholeIconProps = ComponentPropsWithoutRef<'svg'> & {
+  size?: number;
+};
+
 // The official Chat Gippidy logo - a masterpiece of design
-export const CatButtholeIcon = ({ size = 24 }: { size?: number }) => {
+export const CatButtholeIcon = ({
+  size = 24,
+  className,
+  ...props
+}: CatButtholeIconProps) => {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 120 120"
-      className="text-pink-400"
+      className={cn('text-pink-500 dark:text-pink-400', className)}
+      {...props}
     >
       {/* Outer fur circle - adapts to theme */}
       <circle

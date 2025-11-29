@@ -9,6 +9,15 @@ test.describe('Chat activity', () => {
     await chatPage.createNewChat();
   });
 
+  test('displays animated loading placeholder on new chat', async () => {
+    await expect(chatPage.loadingPlaceholder).toBeVisible();
+    await expect(
+      chatPage.loadingPlaceholder.getByRole('status', {
+        name: 'Loading chat history…',
+      }),
+    ).toBeVisible();
+  });
+
   test('Send a user message and receive response', async () => {
     await chatPage.sendUserMessage('Why is grass green?');
     await chatPage.isGenerationComplete();

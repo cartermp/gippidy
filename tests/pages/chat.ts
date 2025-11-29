@@ -26,6 +26,10 @@ export class ChatPage {
     return this.page.getByTestId('scroll-to-bottom-button');
   }
 
+  public get loadingPlaceholder() {
+    return this.page.getByTestId('chat-loading-placeholder');
+  }
+
   async createNewChat() {
     await this.page.goto('/');
   }

@@ -14,6 +14,10 @@ export default async function Page() {
     redirect('/login');
   }
 
+  if (process.env.NODE_ENV === 'development') {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
   const id = generateUUID();
 
   const cookieStore = await cookies();

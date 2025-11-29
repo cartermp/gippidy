@@ -73,6 +73,15 @@ const config: Config = {
           ring: 'hsl(var(--sidebar-ring))',
         },
       },
+      keyframes: {
+        'cat-spin': {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
+        },
+      },
+      animation: {
+        'cat-spin': 'cat-spin 12s linear infinite',
+      },
     },
   },
   plugins: [require('tailwindcss-animate'), require('@tailwindcss/typography')],
