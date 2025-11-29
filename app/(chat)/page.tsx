@@ -14,6 +14,9 @@ export default async function Page() {
     redirect('/login');
   }
 
+  // Small delay to make the loading placeholder visible during manual testing.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
   const id = generateUUID();
 
   const cookieStore = await cookies();

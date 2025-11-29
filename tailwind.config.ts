@@ -16,6 +16,15 @@ const config: Config = {
       screens: {
         'toast-mobile': '600px',
       },
+      keyframes: {
+        'cat-spin': {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
+        },
+      },
+      animation: {
+        'cat-spin': 'cat-spin 6s linear infinite',
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

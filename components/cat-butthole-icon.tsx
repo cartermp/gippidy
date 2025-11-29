@@ -1,11 +1,20 @@
 // The official Chat Gippidy logo - a masterpiece of design
-export const CatButtholeIcon = ({ size = 24 }: { size?: number }) => {
+import { cn } from '@/lib/utils';
+
+export const CatButtholeIcon = ({
+  size = 24,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) => {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 120 120"
-      className="text-pink-400"
+      className={cn('text-pink-400', className)}
+      aria-hidden="true"
     >
       {/* Outer fur circle - adapts to theme */}
       <circle
