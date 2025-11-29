@@ -30,6 +30,15 @@ export class ChatPage {
     return this.page.getByTestId('chat-loading-placeholder');
   }
 
+  public async expectLoadingPlaceholder() {
+    await expect(this.loadingPlaceholder).toBeVisible();
+    await expect(
+      this.loadingPlaceholder.getByRole('status', {
+        name: 'Loading chat history…',
+      }),
+    ).toBeVisible();
+  }
+
   async createNewChat() {
     await this.page.goto('/');
   }
