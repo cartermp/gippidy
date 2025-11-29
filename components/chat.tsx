@@ -120,46 +120,60 @@ export function Chat({
 
   return (
     <>
-      <div className="flex flex-col min-w-0 h-dvh bg-background">
-        <ChatHeader
-          chatId={id}
-          selectedModelId={initialChatModel}
-          selectedVisibilityType={initialVisibilityType}
-          isReadonly={isReadonly}
-          session={session}
-          project={project}
-        />
+      <div className="relative flex min-w-0 h-dvh flex-col overflow-hidden px-4 pb-8 md:px-10">
+        <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+          <div className="absolute -left-20 top-[-6rem] size-72 rounded-full bg-[radial-gradient(circle_at_center,hsl(var(--primary)/0.16),transparent_55%)] blur-3xl opacity-70" />
+          <div className="absolute bottom-[-8rem] right-[-4rem] size-80 rounded-full bg-[radial-gradient(circle_at_center,hsl(var(--accent)/0.12),transparent_50%)] blur-3xl opacity-70" />
+          <div className="absolute inset-x-6 top-0 h-28 rounded-b-[3rem] bg-gradient-to-b from-primary/10 via-primary/5 to-transparent dark:from-primary/15 dark:via-primary/10" />
+        </div>
 
-        <Messages
-          chatId={id}
-          status={status}
-          votes={votes}
-          messages={messages}
-          setMessages={setMessages}
-          reload={reload}
-          isReadonly={isReadonly}
-          isArtifactVisible={isArtifactVisible}
-          selectedChatModel={initialChatModel}
-        />
-
-        <form className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
-          {!isReadonly && (
-            <MultimodalInput
+        <div className="relative z-10 mx-auto flex h-full w-full max-w-6xl flex-col gap-4">
+          <div className="rounded-3xl border border-border/60 bg-card/70 px-3 py-2 shadow-[0_10px_40px_-30px_hsl(var(--foreground)/0.5)] ring-1 ring-primary/5 backdrop-blur-md">
+            <ChatHeader
               chatId={id}
-              input={input}
-              setInput={setInput}
-              handleSubmit={handleSubmit}
-              status={status}
-              stop={stop}
-              attachments={attachments}
-              setAttachments={setAttachments}
-              messages={messages}
-              setMessages={setMessages}
-              append={append}
-              selectedVisibilityType={visibilityType}
+              selectedModelId={initialChatModel}
+              selectedVisibilityType={initialVisibilityType}
+              isReadonly={isReadonly}
+              session={session}
+              project={project}
             />
-          )}
-        </form>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-4 rounded-3xl border border-border/70 bg-card/80 p-3 shadow-[0_25px_80px_-45px_hsl(var(--foreground)/0.4)] ring-1 ring-border/60 backdrop-blur-xl md:p-6">
+            <div className="flex min-h-0 flex-1 rounded-2xl bg-gradient-to-b from-background/40 to-background/70 p-2 md:p-3">
+              <Messages
+                chatId={id}
+                status={status}
+                votes={votes}
+                messages={messages}
+                setMessages={setMessages}
+                reload={reload}
+                isReadonly={isReadonly}
+                isArtifactVisible={isArtifactVisible}
+                selectedChatModel={initialChatModel}
+              />
+            </div>
+
+            <form className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-background/80 p-3 shadow-inner ring-1 ring-primary/5 transition focus-within:ring-primary/25 md:flex-row md:p-4">
+              {!isReadonly && (
+                <MultimodalInput
+                  chatId={id}
+                  input={input}
+                  setInput={setInput}
+                  handleSubmit={handleSubmit}
+                  status={status}
+                  stop={stop}
+                  attachments={attachments}
+                  setAttachments={setAttachments}
+                  messages={messages}
+                  setMessages={setMessages}
+                  append={append}
+                  selectedVisibilityType={visibilityType}
+                />
+              )}
+            </form>
+          </div>
+        </div>
       </div>
 
       <Artifact
