@@ -57,6 +57,9 @@
         --sidebar-accent-foreground: 240 5.9% 10%;
         --sidebar-border: 220 13% 91%;
         --sidebar-ring: 217.2 91.2% 59.8%;
+        --glow-1: 217 91% 60%;
+        --glow-2: 286 75% 68%;
+        --grid-line: 240 5% 84%;
     }
     .dark {
         --background: 240 10% 3.9%;
@@ -91,6 +94,9 @@
         --sidebar-accent-foreground: 240 4.8% 95.9%;
         --sidebar-border: 240 3.7% 15.9%;
         --sidebar-ring: 217.2 91.2% 59.8%;
+        --glow-1: 197 90% 68%;
+        --glow-2: 332 85% 65%;
+        --grid-line: 240 4% 28%;
     }
 }
 
@@ -100,8 +106,34 @@
     }
 
     body {
-        @apply bg-background text-foreground;
+        @apply text-foreground;
+        position: relative;
+        min-height: 100vh;
+        background-color: hsl(var(--background));
+        background-image:
+            radial-gradient(circle at 12% 20%, hsl(var(--glow-1) / 0.14), transparent 32%),
+            radial-gradient(circle at 82% 10%, hsl(var(--glow-2) / 0.18), transparent 30%),
+            radial-gradient(circle at 30% 75%, hsl(var(--accent) / 0.12), transparent 35%),
+            linear-gradient(120deg, hsl(var(--muted) / 0.45), transparent 55%),
+            linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
+        background-attachment: fixed;
+        color: hsl(var(--foreground));
+        isolation: isolate;
     }
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image:
+        linear-gradient(90deg, hsl(var(--grid-line) / 0.25) 1px, transparent 1px),
+        linear-gradient(0deg, hsl(var(--grid-line) / 0.25) 1px, transparent 1px);
+    background-size: 140px 140px;
+    mask-image: radial-gradient(circle at center, black 0, transparent 80%);
+    opacity: 0.5;
+    pointer-events: none;
 }
 
 .skeleton {

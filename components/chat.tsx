@@ -120,46 +120,67 @@ export function Chat({
 
   return (
     <>
-      <div className="flex flex-col min-w-0 h-dvh bg-background">
-        <ChatHeader
-          chatId={id}
-          selectedModelId={initialChatModel}
-          selectedVisibilityType={initialVisibilityType}
-          isReadonly={isReadonly}
-          session={session}
-          project={project}
+      <div className="relative isolate flex min-w-0 flex-col h-dvh overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-60 dark:opacity-50"
+          aria-hidden="true"
+        >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,hsl(var(--glow-1)/0.18),transparent_35%),radial-gradient(circle_at_80%_0%,hsl(var(--glow-2)/0.16),transparent_30%),radial-gradient(circle_at_25%_78%,hsl(var(--accent)/0.14),transparent_36%)]" />
+        </div>
+
+        <div
+          className="pointer-events-none absolute right-[-10%] -bottom-1/4 size-96 rounded-full bg-primary/15 blur-3xl dark:bg-primary/25"
+          aria-hidden="true"
         />
 
-        <Messages
-          chatId={id}
-          status={status}
-          votes={votes}
-          messages={messages}
-          setMessages={setMessages}
-          reload={reload}
-          isReadonly={isReadonly}
-          isArtifactVisible={isArtifactVisible}
-          selectedChatModel={initialChatModel}
-        />
+        <div className="relative z-10 mx-auto flex size-full max-w-6xl flex-col gap-4 px-4 pb-6 pt-3 md:px-8">
+          <ChatHeader
+            chatId={id}
+            selectedModelId={initialChatModel}
+            selectedVisibilityType={initialVisibilityType}
+            isReadonly={isReadonly}
+            session={session}
+            project={project}
+          />
 
-        <form className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
-          {!isReadonly && (
-            <MultimodalInput
+          <div className="relative flex-1 overflow-hidden rounded-3xl border border-border/60 bg-card/70 shadow-[0_35px_90px_-50px_rgba(0,0,0,0.55)] ring-1 ring-border/40 supports-[backdrop-filter]:bg-card/55">
+            <div
+              className="pointer-events-none absolute inset-x-6 top-0 h-28 bg-gradient-to-b from-primary/10 via-card/20 to-transparent dark:from-primary/20"
+              aria-hidden="true"
+            />
+
+            <Messages
               chatId={id}
-              input={input}
-              setInput={setInput}
-              handleSubmit={handleSubmit}
               status={status}
-              stop={stop}
-              attachments={attachments}
-              setAttachments={setAttachments}
+              votes={votes}
               messages={messages}
               setMessages={setMessages}
-              append={append}
-              selectedVisibilityType={visibilityType}
+              reload={reload}
+              isReadonly={isReadonly}
+              isArtifactVisible={isArtifactVisible}
+              selectedChatModel={initialChatModel}
             />
-          )}
-        </form>
+          </div>
+
+          <form className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-full border border-border/60 bg-card/90 px-3 py-2 shadow-xl shadow-black/5 ring-1 ring-border/50 supports-[backdrop-filter]:backdrop-blur md:px-4 md:py-3">
+            {!isReadonly && (
+              <MultimodalInput
+                chatId={id}
+                input={input}
+                setInput={setInput}
+                handleSubmit={handleSubmit}
+                status={status}
+                stop={stop}
+                attachments={attachments}
+                setAttachments={setAttachments}
+                messages={messages}
+                setMessages={setMessages}
+                append={append}
+                selectedVisibilityType={visibilityType}
+              />
+            )}
+          </form>
+        </div>
       </div>
 
       <Artifact

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState, useTransition } from 'react';
+import { type FormEvent, useState, useTransition } from 'react';
 import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
@@ -134,10 +134,14 @@ export default function Page() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">
+                  <label
+                    htmlFor="access-code"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
                     Access code
                   </label>
                   <input
+                    id="access-code"
                     type="password"
                     value={accessCode}
                     onChange={(event) => setAccessCode(event.target.value)}
