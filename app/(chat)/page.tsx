@@ -7,12 +7,17 @@ import { DataStreamHandler } from '@/components/data-stream-handler';
 import { auth } from '../(auth)/auth';
 import { redirect } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default async function Page() {
   const session = await auth();
 
   if (!session) {
     redirect('/login');
   }
+
+  // Small delay to make the loading placeholder visible during manual testing.
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
   const id = generateUUID();
 
