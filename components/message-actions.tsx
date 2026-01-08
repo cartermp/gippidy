@@ -1,4 +1,4 @@
-import type { Message } from 'ai';
+import type { ChatMessage } from '@/lib/chat/types';
 import { useSWRConfig } from 'swr';
 import { useCopyToClipboard } from 'usehooks-ts';
 
@@ -23,7 +23,7 @@ export function PureMessageActions({
   isLoading,
 }: {
   chatId: string;
-  message: Message;
+  message: ChatMessage;
   vote: Vote | undefined;
   isLoading: boolean;
 }) {

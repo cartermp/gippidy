@@ -1,10 +1,10 @@
 import { PreviewMessage, ThinkingMessage } from './message';
 import type { Vote } from '@/lib/db/schema';
-import type { UIMessage } from 'ai';
+import type { ChatMessage } from '@/lib/chat/types';
 import { memo } from 'react';
 import equal from 'fast-deep-equal';
 import type { UIArtifact } from './artifact';
-import type { UseChatHelpers } from '@ai-sdk/react';
+import type { UseChatHelpers } from '@/hooks/use-chat';
 import { motion } from 'framer-motion';
 import { useMessages } from '@/hooks/use-messages';
 
@@ -12,7 +12,7 @@ interface ArtifactMessagesProps {
   chatId: string;
   status: UseChatHelpers['status'];
   votes: Array<Vote> | undefined;
-  messages: Array<UIMessage>;
+  messages: Array<ChatMessage>;
   setMessages: UseChatHelpers['setMessages'];
   reload: UseChatHelpers['reload'];
   isReadonly: boolean;

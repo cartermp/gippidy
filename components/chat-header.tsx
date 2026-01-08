@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation';
 import { useWindowSize } from 'usehooks-ts';
 
-import { ModelSelector } from '@/components/model-selector';
 import { SidebarToggle } from '@/components/sidebar-toggle';
 import { Button } from '@/components/ui/button';
 import { PlusIcon, FolderIcon } from './icons';
@@ -34,6 +33,7 @@ function PureChatHeader({
   const { open } = useSidebar();
 
   const { width: windowWidth } = useWindowSize();
+  void session;
 
   return (
     <header className="flex sticky top-0 bg-background py-1.5 items-center px-2 md:px-2 gap-2">
@@ -66,14 +66,6 @@ function PureChatHeader({
           </TooltipTrigger>
           <TooltipContent>New Chat</TooltipContent>
         </Tooltip>
-      )}
-
-      {!isReadonly && (
-        <ModelSelector
-          session={session}
-          selectedModelId={selectedModelId}
-          className="order-1 md:order-2"
-        />
       )}
 
       {!isReadonly && (

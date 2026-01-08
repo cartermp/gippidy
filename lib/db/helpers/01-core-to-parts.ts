@@ -10,7 +10,7 @@ import {
 } from '../schema';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { inArray } from 'drizzle-orm';
-import { appendResponseMessages, type UIMessage } from 'ai';
+import { createTextParts } from '@/lib/chat/messages';
 
 config({
   path: '.env.local',
@@ -130,86 +130,37 @@ async function migrateMessages() {
 
       const votes = allVotes.filter((v) => v.chatId === chat.id);
 
-      const messageSection: Array<UIMessage> = [];
-      const messageSections: Array<Array<UIMessage>> = [];
+      try {
+        for (const message of messages) {
+          const textContent =
+            typeof message.content === 'string'
+              ? message.content
+              : JSON.stringify(message.content ?? '');
 
-      for (const message of messages) {
-        const { role } = message;
+          const projectedMessage: NewMessageInsert = {
+            id: message.id,
+            chatId: chat.id,
+            parts: sanitizeParts(dedupeParts(createTextParts(textContent))),
+            role: message.role,
+            createdAt: message.createdAt,
+            attachments: [],
+          };
 
-        if (role === 'user' && messageSection.length > 0) {
-          messageSections.push([...messageSection]);
-          messageSection.length = 0;
-        }
+          newMessagesToInsert.push(projectedMessage);
 
-        // @ts-expect-error message.content has different type
-        messageSection.push(message);
-      }
-
-      if (messageSection.length > 0) {
-        messageSections.push([...messageSection]);
-      }
-
-      for (const section of messageSections) {
-        const [userMessage, ...assistantMessages] = section;
-
-        const [firstAssistantMessage] = assistantMessages;
-
-        try {
-          const uiSection = appendResponseMessages({
-            messages: [userMessage],
-            // @ts-expect-error: message.content has different type
-            responseMessages: assistantMessages,
-            _internal: {
-              currentDate: () => firstAssistantMessage.createdAt ?? new Date(),
-            },
-          });
-
-          const projectedUISection = uiSection
-            .map((message) => {
-              if (message.role === 'user') {
-                return {
-                  id: message.id,
-                  chatId: chat.id,
-                  parts: [{ type: 'text', text: message.content }],
-                  role: message.role,
-                  createdAt: message.createdAt,
-                  attachments: [],
-                } as NewMessageInsert;
-              } else if (message.role === 'assistant') {
-                const cleanParts = sanitizeParts(
-                  dedupeParts(message.parts || []),
-                );
-
-                return {
-                  id: message.id,
-                  chatId: chat.id,
-                  parts: cleanParts,
-                  role: message.role,
-                  createdAt: message.createdAt,
-                  attachments: [],
-                } as NewMessageInsert;
-              }
-              return null;
-            })
-            .filter((msg): msg is NewMessageInsert => msg !== null);
-
-          for (const msg of projectedUISection) {
-            newMessagesToInsert.push(msg);
-
-            if (msg.role === 'assistant') {
-              const voteByMessage = votes.find((v) => v.messageId === msg.id);
-              if (voteByMessage) {
-                newVotesToInsert.push({
-                  messageId: msg.id,
-                  chatId: msg.chatId,
-                  isUpvoted: voteByMessage.isUpvoted,
-                });
-              }
+          if (projectedMessage.role === 'assistant') {
+            const voteByMessage = votes.find((v) => v.messageId === message.id);
+            if (voteByMessage) {
+              newVotesToInsert.push({
+                messageId: projectedMessage.id,
+                chatId: projectedMessage.chatId,
+                isUpvoted: voteByMessage.isUpvoted,
+              });
             }
           }
-        } catch (error) {
-          console.error(`Error processing chat ${chat.id}: ${error}`);
         }
+      } catch (error) {
+        console.error(`Error processing chat ${chat.id}: ${error}`);
       }
     }
 

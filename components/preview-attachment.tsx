@@ -1,4 +1,4 @@
-import type { Attachment } from 'ai';
+import type { Attachment } from '@/lib/chat/types';
 
 import { LoaderIcon, XIcon } from './icons';
 import { Button } from './ui/button';

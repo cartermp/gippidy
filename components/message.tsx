@@ -1,6 +1,6 @@
 'use client';
 
-import type { UIMessage } from 'ai';
+import type { ChatMessage } from '@/lib/chat/types';
 import cx from 'classnames';
 import { AnimatePresence, motion } from 'framer-motion';
 import { memo, useState } from 'react';
@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { MessageEditor } from './message-editor';
 import { DocumentPreview } from './document-preview';
 import { MessageReasoning } from './message-reasoning';
-import type { UseChatHelpers } from '@ai-sdk/react';
+import type { UseChatHelpers } from '@/hooks/use-chat';
 
 const PurePreviewMessage = ({
   chatId,
@@ -32,7 +32,7 @@ const PurePreviewMessage = ({
   requiresScrollPadding,
 }: {
   chatId: string;
-  message: UIMessage;
+  message: ChatMessage;
   vote: Vote | undefined;
   isLoading: boolean;
   setMessages: UseChatHelpers['setMessages'];
@@ -73,13 +73,12 @@ const PurePreviewMessage = ({
               'min-h-96': message.role === 'assistant' && requiresScrollPadding,
             })}
           >
-            {message.experimental_attachments &&
-              message.experimental_attachments.length > 0 && (
+            {message.attachments && message.attachments.length > 0 && (
                 <div
                   data-testid={`message-attachments`}
                   className="flex flex-row justify-end gap-2"
                 >
-                  {message.experimental_attachments.map((attachment) => (
+                  {message.attachments.map((attachment) => (
                     <PreviewAttachment
                       key={attachment.url}
                       attachment={attachment}

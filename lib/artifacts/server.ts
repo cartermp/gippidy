@@ -3,7 +3,9 @@ import { imageDocumentHandler } from '@/artifacts/image/server';
 import { sheetDocumentHandler } from '@/artifacts/sheet/server';
 import { textDocumentHandler } from '@/artifacts/text/server';
 import type { ArtifactKind } from '@/components/artifact';
-import type { DataStreamWriter } from 'ai';
+type DataStreamWriter = {
+  writeData: (data: unknown) => void;
+};
 import type { Document } from '../db/schema';
 import { saveDocument } from '../db/queries';
 import type { Session } from 'next-auth';

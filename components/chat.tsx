@@ -1,12 +1,12 @@
 'use client';
 
-import type { Attachment, UIMessage } from 'ai';
-import { useChat } from '@ai-sdk/react';
+import type { Attachment, ChatMessage } from '@/lib/chat/types';
+import { useChat } from '@/hooks/use-chat';
 import { useEffect, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { ChatHeader } from '@/components/chat-header';
 import type { Vote, Project } from '@/lib/db/schema';
-import { fetcher, fetchWithErrorHandlers, generateUUID } from '@/lib/utils';
+import { fetcher } from '@/lib/utils';
 import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
@@ -18,7 +18,6 @@ import { toast } from './toast';
 import type { Session } from 'next-auth';
 import { useSearchParams } from 'next/navigation';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
-import { useAutoResume } from '@/hooks/use-auto-resume';
 import { ChatSDKError } from '@/lib/errors';
 
 export function Chat({
@@ -32,7 +31,7 @@ export function Chat({
   project,
 }: {
   id: string;
-  initialMessages: Array<UIMessage>;
+  initialMessages: Array<ChatMessage>;
   initialChatModel: string;
   initialVisibilityType: VisibilityType;
   isReadonly: boolean;
@@ -57,21 +56,10 @@ export function Chat({
     status,
     stop,
     reload,
-    experimental_resume,
-    data,
   } = useChat({
     id,
     initialMessages,
-    experimental_throttle: 100,
-    sendExtraMessageFields: true,
-    generateId: generateUUID,
-    fetch: fetchWithErrorHandlers,
-    experimental_prepareRequestBody: (body) => ({
-      id,
-      message: body.messages.at(-1),
-      selectedChatModel: initialChatModel,
-      selectedVisibilityType: visibilityType,
-    }),
+    selectedVisibilityType: visibilityType,
     onFinish: () => {
       mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
@@ -110,13 +98,7 @@ export function Chat({
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
 
-  useAutoResume({
-    autoResume,
-    initialMessages,
-    experimental_resume,
-    data,
-    setMessages,
-  });
+  void autoResume;
 
   return (
     <>

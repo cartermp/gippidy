@@ -1,4 +1,7 @@
-import type { CoreMessage } from 'ai';
+type CoreMessage = {
+  role: string;
+  content: Array<{ type: string; [key: string]: unknown }>;
+};
 
 export const TEST_PROMPTS: Record<string, CoreMessage> = {
   USER_SKY: {

@@ -1,4 +1,12 @@
-import type { CoreMessage, LanguageModelV1StreamPart } from 'ai';
+type CoreMessage = {
+  role: string;
+  content: Array<{ type: string; [key: string]: unknown }>;
+};
+
+type LanguageModelV1StreamPart = {
+  type: string;
+  [key: string]: unknown;
+};
 import { TEST_PROMPTS } from './basic';
 
 export function compareMessages(

@@ -1,6 +1,6 @@
 'use client';
 
-import type { Attachment, UIMessage } from 'ai';
+import type { Attachment, ChatMessage } from '@/lib/chat/types';
 import cx from 'classnames';
 import type React from 'react';
 import {
@@ -22,7 +22,7 @@ import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { SuggestedActions } from './suggested-actions';
 import equal from 'fast-deep-equal';
-import type { UseChatHelpers } from '@ai-sdk/react';
+import type { UseChatHelpers } from '@/hooks/use-chat';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown } from 'lucide-react';
 import { useScrollToBottom } from '@/hooks/use-scroll-to-bottom';
@@ -50,7 +50,7 @@ function PureMultimodalInput({
   stop: () => void;
   attachments: Array<Attachment>;
   setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
-  messages: Array<UIMessage>;
+  messages: Array<ChatMessage>;
   setMessages: UseChatHelpers['setMessages'];
   append: UseChatHelpers['append'];
   handleSubmit: UseChatHelpers['handleSubmit'];

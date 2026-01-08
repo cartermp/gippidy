@@ -27,7 +27,7 @@ import {
 import { ArrowUpIcon, StopIcon, SummarizeIcon } from './icons';
 import { artifactDefinitions, type ArtifactKind } from './artifact';
 import type { ArtifactToolbarItem } from './create-artifact';
-import type { UseChatHelpers } from '@ai-sdk/react';
+import type { UseChatHelpers } from '@/hooks/use-chat';
 
 type ToolProps = {
   description: string;

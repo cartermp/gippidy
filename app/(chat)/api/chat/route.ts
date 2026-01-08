@@ -1,77 +1,47 @@
-import {
-  appendClientMessage,
-  appendResponseMessages,
-  createDataStream,
-  smoothStream,
-  streamText,
-} from 'ai';
 import { auth } from '@/app/(auth)/auth';
-import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
+import { generateTitleFromUserMessage } from '../../actions';
 import {
-  buildProjectContext,
-  formatProjectContextForPrompt,
-} from '@/lib/ai/project-context';
-import {
-  createStreamId,
   deleteChatById,
   getChatById,
   getMessageCountByUserId,
-  getMessagesByChatId,
-  getStreamIdsByChatId,
   saveChat,
   saveMessages,
 } from '@/lib/db/queries';
-import { generateUUID, getTrailingMessageId } from '@/lib/utils';
-import { generateTitleFromUserMessage } from '../../actions';
-import { createDocument } from '@/lib/ai/tools/create-document';
-import { updateDocument } from '@/lib/ai/tools/update-document';
-import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
-import { getWeather } from '@/lib/ai/tools/get-weather';
-import { isProductionEnvironment } from '@/lib/constants';
-import { myProvider } from '@/lib/ai/providers';
-import { userEntitlements } from '@/lib/ai/entitlements';
+import { generateUUID } from '@/lib/utils';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
-import { geolocation } from '@vercel/functions';
-import {
-  createResumableStreamContext,
-  type ResumableStreamContext,
-} from 'resumable-stream';
-import { after } from 'next/server';
-import type { Chat } from '@/lib/db/schema';
-import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
 import {
   createChatSpan,
   recordError,
   recordErrorOnCurrentSpan,
 } from '@/lib/telemetry';
+import { createTextParts, getMessageText } from '@/lib/chat/messages';
+import { chatEntitlements } from '@/lib/chat/entitlements';
 
 export const maxDuration = 60;
 
-let globalStreamContext: ResumableStreamContext | null = null;
+function buildAssistantReply({
+  message,
+}: {
+  message: PostRequestBody['message'];
+}): string {
+  const userText = getMessageText(message);
+  const attachmentCount = message.experimental_attachments?.length ?? 0;
 
-function getStreamContext() {
-  if (!globalStreamContext) {
-    try {
-      globalStreamContext = createResumableStreamContext({
-        waitUntil: after,
-      });
-    } catch (error: any) {
-      if (error.message.includes('REDIS_URL')) {
-        console.log(
-          ' > Resumable streams are disabled due to missing REDIS_URL',
-        );
-      } else {
-        recordErrorOnCurrentSpan(error, {
-          operation: 'stream_context_init',
-          'error.type': 'redis_connection',
-        });
-        console.error(error);
-      }
-    }
+  const acknowledgements = [
+    'Message saved.',
+    userText ? `You said: "${userText}"` : 'You sent a new message.',
+  ];
+
+  if (attachmentCount > 0) {
+    acknowledgements.push(
+      `Attachments received: ${attachmentCount} file${
+        attachmentCount === 1 ? '' : 's'
+      }.`,
+    );
   }
 
-  return globalStreamContext;
+  return acknowledgements.join(' ');
 }
 
 export async function POST(request: Request) {
@@ -89,13 +59,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { id, message, selectedChatModel, selectedVisibilityType } =
-      requestBody;
+    const { id, message, selectedVisibilityType } = requestBody;
 
-    // Set initial span attributes
     chatSpan.setAttributes({
       'app.chat.id': id,
-      'app.chat.model': selectedChatModel,
       'app.chat.visibility': selectedVisibilityType,
     });
 
@@ -117,14 +84,14 @@ export async function POST(request: Request) {
     chatSpan.setAttributes({
       'app.user.id': session.user.id,
       'app.user.message_count_24h': messageCount,
-      'app.user.entitlement_limit': userEntitlements.maxMessagesPerDay,
+      'app.user.entitlement_limit': chatEntitlements.maxMessagesPerDay,
     });
 
-    if (messageCount > userEntitlements.maxMessagesPerDay) {
+    if (messageCount > chatEntitlements.maxMessagesPerDay) {
       chatSpan.setAttributes({
         'app.user.is_rate_limited': true,
         'app.user.message_count_24h': messageCount,
-        'app.user.entitlement_limit': userEntitlements.maxMessagesPerDay,
+        'app.user.entitlement_limit': chatEntitlements.maxMessagesPerDay,
       });
       chatSpan.end();
       return new ChatSDKError('rate_limit:chat').toResponse();
@@ -148,38 +115,13 @@ export async function POST(request: Request) {
         title,
         visibility: selectedVisibilityType,
       });
-    } else {
-      if (chat.userId !== session.user.id) {
-        chatSpan.setAttributes({
-          'app.auth.forbidden': true,
-        });
-        chatSpan.end();
-        return new ChatSDKError('forbidden:chat').toResponse();
-      }
+    } else if (chat.userId !== session.user.id) {
+      chatSpan.setAttributes({
+        'app.auth.forbidden': true,
+      });
+      chatSpan.end();
+      return new ChatSDKError('forbidden:chat').toResponse();
     }
-
-    const previousMessages = await getMessagesByChatId({ id });
-
-    const messages = appendClientMessage({
-      // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
-      messages: previousMessages,
-      message,
-    });
-
-    const { longitude, latitude, city, country } = geolocation(request);
-
-    const requestHints: RequestHints = {
-      longitude,
-      latitude,
-      city,
-      country,
-    };
-
-    // Build project context for this chat
-    const projectContext = await buildProjectContext(id);
-    const projectContextPrompt = projectContext
-      ? formatProjectContextForPrompt(projectContext)
-      : undefined;
 
     await saveMessages({
       messages: [
@@ -194,190 +136,39 @@ export async function POST(request: Request) {
       ],
     });
 
-    const streamId = generateUUID();
-    await createStreamId({ streamId, chatId: id });
+    const assistantMessageId = generateUUID();
+    const assistantText = buildAssistantReply({ message });
 
-    // Extract user message text from parts
-    const userContent = message.parts || [];
-    const userText = userContent
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text)
-      .join(' ');
+    const assistantMessage = {
+      id: assistantMessageId,
+      role: 'assistant',
+      parts: createTextParts(assistantText),
+      createdAt: new Date(),
+      attachments: [],
+    };
 
-    chatSpan.setAttributes({
-      'app.ai.tools.active': [
-        'getWeather',
-        'createDocument',
-        'updateDocument',
-        'requestSuggestions',
+    await saveMessages({
+      messages: [
+        {
+          id: assistantMessageId,
+          chatId: id,
+          role: 'assistant',
+          parts: assistantMessage.parts,
+          attachments: [],
+          createdAt: assistantMessage.createdAt,
+        },
       ],
-      'app.ai.response.streaming': true,
-      'app.stream.id': streamId,
-      'app.ai.model.input.messages_count': messages.length,
-      'app.ai.model.input.system_prompt': systemPrompt({
-        selectedChatModel,
-        requestHints,
-        projectContext: projectContextPrompt,
-      }),
-      'app.ai.model.input.user_message': userText,
     });
-
-    const stream = createDataStream({
-      execute: (dataStream) => {
-        const result = streamText({
-          experimental_activeTools: [
-            'getWeather',
-            'createDocument',
-            'updateDocument',
-            'requestSuggestions',
-          ],
-          experimental_generateMessageId: generateUUID,
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: 'stream-text',
-          },
-          experimental_transform: smoothStream({ chunking: 'word' }),
-          maxSteps: 5,
-          messages,
-          model: myProvider.languageModel(selectedChatModel),
-          onFinish: async ({ response, usage, finishReason, toolCalls }) => {
-            // Record AI completion metrics and full I/O
-            const assistantMessages = response.messages.filter(
-              (m) => m.role === 'assistant',
-            );
-            const lastAssistantMessage =
-              assistantMessages[assistantMessages.length - 1];
-
-            // Extract text content from parts
-            const responseContent = lastAssistantMessage?.content;
-            const responseText =
-              typeof responseContent === 'string'
-                ? responseContent
-                : Array.isArray(responseContent)
-                  ? responseContent
-                      .filter((part) => part.type === 'text')
-                      .map((part) => part.text)
-                      .join(' ')
-                  : '';
-
-            // Check for reasoning content in response
-            const hasReasoning = response.messages.some(
-              (msg) =>
-                Array.isArray(msg.content) &&
-                msg.content.some((part) => part.type === 'reasoning'),
-            );
-
-            const reasoningParts = response.messages.flatMap((msg) =>
-              Array.isArray(msg.content)
-                ? msg.content.filter((part) => part.type === 'reasoning')
-                : [],
-            );
-
-            chatSpan.setAttributes({
-              'app.ai.response.finish_reason': finishReason || 'unknown',
-              'app.ai.response.tokens.total': usage?.totalTokens || 0,
-              'app.ai.response.tokens.prompt': usage?.promptTokens || 0,
-              'app.ai.response.tokens.completion': usage?.completionTokens || 0,
-              // TODO: Add reasoning tokens when supported by AI SDK
-              // 'app.ai.response.tokens.reasoning': usage?.reasoningTokens || 0,
-              'app.ai.tools.called': toolCalls?.map((tc) => tc.toolName) || [],
-              'app.ai.tools.called_count': toolCalls?.length || 0,
-              'app.ai.response.messages_count': assistantMessages.length,
-              'app.ai.response.content': responseText,
-              'app.ai.response.has_reasoning': hasReasoning,
-              'app.ai.response.reasoning_steps': reasoningParts.length,
-            });
-
-            // End the span here after completion
-            chatSpan.end();
-
-            if (session.user?.id) {
-              try {
-                const assistantId = getTrailingMessageId({
-                  messages: response.messages.filter(
-                    (message) => message.role === 'assistant',
-                  ),
-                });
-
-                if (!assistantId) {
-                  throw new Error('No assistant message found!');
-                }
-
-                const [, assistantMessage] = appendResponseMessages({
-                  messages: [message],
-                  responseMessages: response.messages,
-                });
-
-                await saveMessages({
-                  messages: [
-                    {
-                      id: assistantId,
-                      chatId: id,
-                      role: assistantMessage.role,
-                      parts: assistantMessage.parts,
-                      attachments:
-                        assistantMessage.experimental_attachments ?? [],
-                      createdAt: new Date(),
-                    },
-                  ],
-                });
-
-                chatSpan.setAttributes({
-                  'app.message.id': assistantId,
-                  'app.message.role': 'assistant',
-                });
-              } catch (error) {
-                recordError(chatSpan, error as Error, {
-                  'error.context': 'save_assistant_message',
-                });
-                console.error('Failed to save chat');
-              }
-            }
-          },
-          system: systemPrompt({
-            selectedChatModel,
-            requestHints,
-            projectContext: projectContextPrompt,
-          }),
-          tools: {
-            getWeather,
-            createDocument: createDocument({ session, dataStream }),
-            updateDocument: updateDocument({ session, dataStream }),
-            requestSuggestions: requestSuggestions({
-              session,
-              dataStream,
-            }),
-          },
-        });
-
-        result.consumeStream();
-
-        result.mergeIntoDataStream(dataStream, {
-          sendReasoning: true,
-        });
-      },
-      onError: (error) => {
-        recordError(chatSpan, error as Error, {
-          'app.error.context': 'ai_streaming',
-        });
-        chatSpan.end();
-        return 'Oops, an error occurred!';
-      },
-    });
-
-    const streamContext = getStreamContext();
 
     chatSpan.setAttributes({
-      'stream.resumable': !!streamContext,
+      'app.message.id': assistantMessageId,
+      'app.message.role': 'assistant',
+      'app.ai.response.content': assistantText,
     });
 
-    if (streamContext) {
-      return new Response(
-        await streamContext.resumableStream(streamId, () => stream),
-      );
-    } else {
-      return new Response(stream);
-    }
+    chatSpan.end();
+
+    return Response.json({ assistantMessage }, { status: 200 });
   } catch (error) {
     recordError(chatSpan, error as Error, {
       'app.error.context': 'chat_request',
@@ -389,103 +180,16 @@ export async function POST(request: Request) {
       return error.toResponse();
     }
 
+    recordErrorOnCurrentSpan(error as Error, {
+      operation: 'chat_request',
+    });
+
     return new ChatSDKError('internal_server_error:chat').toResponse();
   }
 }
 
-export async function GET(request: Request) {
-  const streamContext = getStreamContext();
-  const resumeRequestedAt = new Date();
-
-  if (!streamContext) {
-    return new Response(null, { status: 204 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const chatId = searchParams.get('chatId');
-
-  if (!chatId) {
-    return new ChatSDKError('bad_request:api').toResponse();
-  }
-
-  const session = await auth();
-
-  if (!session?.user) {
-    return new ChatSDKError('unauthorized:chat').toResponse();
-  }
-
-  let chat: Chat;
-
-  try {
-    chat = await getChatById({ id: chatId });
-  } catch {
-    return new ChatSDKError('not_found:chat').toResponse();
-  }
-
-  if (!chat) {
-    return new ChatSDKError('not_found:chat').toResponse();
-  }
-
-  if (chat.visibility === 'private' && chat.userId !== session.user.id) {
-    return new ChatSDKError('forbidden:chat').toResponse();
-  }
-
-  const streamIds = await getStreamIdsByChatId({ chatId });
-
-  if (!streamIds.length) {
-    return new ChatSDKError('not_found:stream').toResponse();
-  }
-
-  const recentStreamId = streamIds.at(-1);
-
-  if (!recentStreamId) {
-    return new ChatSDKError('not_found:stream').toResponse();
-  }
-
-  const emptyDataStream = createDataStream({
-    execute: () => {},
-  });
-
-  const stream = await streamContext.resumableStream(
-    recentStreamId,
-    () => emptyDataStream,
-  );
-
-  /*
-   * For when the generation is streaming during SSR
-   * but the resumable stream has concluded at this point.
-   */
-  if (!stream) {
-    const messages = await getMessagesByChatId({ id: chatId });
-    const mostRecentMessage = messages.at(-1);
-
-    if (!mostRecentMessage) {
-      return new Response(emptyDataStream, { status: 200 });
-    }
-
-    if (mostRecentMessage.role !== 'assistant') {
-      return new Response(emptyDataStream, { status: 200 });
-    }
-
-    const messageCreatedAt = new Date(mostRecentMessage.createdAt);
-
-    if (differenceInSeconds(resumeRequestedAt, messageCreatedAt) > 15) {
-      return new Response(emptyDataStream, { status: 200 });
-    }
-
-    const restoredStream = createDataStream({
-      execute: (buffer) => {
-        buffer.writeData({
-          type: 'append-message',
-          message: JSON.stringify(mostRecentMessage),
-        });
-      },
-    });
-
-    return new Response(restoredStream, { status: 200 });
-  }
-
-  return new Response(stream, { status: 200 });
+export async function GET() {
+  return new Response(null, { status: 204 });
 }
 
 export async function DELETE(request: Request) {
