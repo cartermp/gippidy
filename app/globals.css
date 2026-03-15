@@ -205,12 +205,49 @@ header select option {
 /* ── input area ── */
 .input-area {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
   padding: 10px 16px;
   border-top: 1px solid var(--border);
   background: #080808;
   flex-shrink: 0;
+  gap: 8px;
+}
+
+.pending-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pending-image {
+  position: relative;
+  display: inline-flex;
+}
+
+.pending-image img {
+  height: 64px;
+  width: 64px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.pending-image button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: #000;
+  color: var(--fg);
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
 }
 
 .input-prompt {
@@ -220,7 +257,7 @@ header select option {
   flex-shrink: 0;
 }
 
-.input-area textarea {
+.input-row textarea {
   flex: 1;
   background: transparent;
   color: var(--fg);
@@ -235,11 +272,11 @@ header select option {
   overflow-y: auto;
 }
 
-.input-area textarea:focus { outline: none; }
-.input-area textarea::placeholder { color: var(--dim); }
-.input-area textarea:disabled { opacity: 0.4; }
+.input-row textarea:focus { outline: none; }
+.input-row textarea::placeholder { color: var(--dim); }
+.input-row textarea:disabled { opacity: 0.4; }
 
-.input-area button {
+.input-row button {
   background: transparent;
   color: var(--green);
   border: 1px solid var(--green);
@@ -251,14 +288,29 @@ header select option {
   flex-shrink: 0;
 }
 
-.input-area button:hover:not(:disabled) {
+.input-row button:hover:not(:disabled) {
   background: var(--green);
   color: var(--bg);
 }
 
-.input-area button:disabled {
+.input-row button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* ── images in messages ── */
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.message-image {
+  max-width: 300px;
+  max-height: 300px;
+  object-fit: contain;
+  border: 1px solid var(--border);
 }
 
 /* ── markdown content ── */

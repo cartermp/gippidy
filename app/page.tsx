@@ -5,7 +5,8 @@ import { signOut } from 'next-auth/react';
 import { renderMarkdown } from '@/lib/markdown';
 
 type Role = 'user' | 'assistant';
-type Message = { role: Role; content: string };
+type Image = { data: string; mimeType: string }; // base64, no prefix
+type Message = { role: Role; content: string; images?: Image[] };
 
 const MODELS = [
   { id: 'gpt-5.4',                label: 'GPT-5.4',           provider: 'openai' },
@@ -26,9 +27,11 @@ export default function Home() {
   const [streaming, setStreaming]               = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [showSettings, setShowSettings]         = useState(false);
+  const [pendingImages, setPendingImages]       = useState<Image[]>([]);
   const bottomRef   = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef     = useRef<HTMLInputElement>(null);
   const pinnedRef   = useRef(true);
 
   useEffect(() => {
@@ -70,15 +73,52 @@ export default function Home() {
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFiles = Array.from(e.clipboardData.items)
+      .filter(item => item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter((f): f is File => f !== null);
+
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    imageFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const data = (reader.result as string).split(',')[1];
+        setPendingImages(imgs => [...imgs, { data, mimeType: file.type }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const data = dataUrl.split(',')[1];
+        setPendingImages(imgs => [...imgs, { data, mimeType: file.type }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!input.trim() || streaming) return;
+    if ((!input.trim() && pendingImages.length === 0) || streaming) return;
 
-    const userMessage: Message = { role: 'user', content: input.trim() };
+    const userMessage: Message = {
+      role: 'user',
+      content: input.trim(),
+      ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
+    };
     const newMessages = [...messages, userMessage];
     pinnedRef.current = true;
     setMessages(newMessages);
     setInput('');
+    setPendingImages([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setStreaming(true);
     setStreamingContent('');
@@ -162,10 +202,19 @@ export default function Home() {
         {messages.map((msg, i) => (
           <div key={i} className={`message ${msg.role}`}>
             <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
-            {msg.role === 'assistant'
-              ? <div className="content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-              : <span className="content">{msg.content}</span>
-            }
+            <div className="content">
+              {msg.images && msg.images.length > 0 && (
+                <div className="message-images">
+                  {msg.images.map((img, j) => (
+                    <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
+                  ))}
+                </div>
+              )}
+              {msg.role === 'assistant'
+                ? <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                : msg.content && <span>{msg.content}</span>
+              }
+            </div>
           </div>
         ))}
         {streaming && (
@@ -181,19 +230,34 @@ export default function Home() {
       </div>
 
       <form className="input-area" onSubmit={handleSubmit}>
-        <span className="input-prompt">&gt;</span>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder="type a message… (enter to send, shift+enter for newline)"
-          disabled={streaming}
-          rows={1}
-        />
-        <button type="submit" disabled={streaming || !input.trim()}>
-          {streaming ? '[…]' : '[SEND]'}
-        </button>
+        {pendingImages.length > 0 && (
+          <div className="pending-images">
+            {pendingImages.map((img, i) => (
+              <div key={i} className="pending-image">
+                <img src={`data:${img.mimeType};base64,${img.data}`} alt="" />
+                <button type="button" onClick={() => setPendingImages(imgs => imgs.filter((_, j) => j !== i))}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="input-row">
+          <span className="input-prompt">&gt;</span>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder="type a message… (enter to send, shift+enter for newline)"
+            disabled={streaming}
+            rows={1}
+          />
+          <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleImageSelect} style={{ display: 'none' }} />
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[IMG]</button>
+          <button type="submit" disabled={streaming || (!input.trim() && pendingImages.length === 0)}>
+            {streaming ? '[…]' : '[SEND]'}
+          </button>
+        </div>
       </form>
     </div>
   );

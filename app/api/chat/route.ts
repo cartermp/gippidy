@@ -3,13 +3,60 @@ import { GoogleGenAI } from '@google/genai';
 
 export const runtime = 'nodejs';
 
-type Message = { role: string; content: string };
+type Image = { data: string; mimeType: string };
+type Message = { role: string; content: string; images?: Image[] };
 type Provider = 'openai' | 'anthropic' | 'google';
 
 function getProvider(model: string): Provider {
-  if (model.startsWith('claude'))  return 'anthropic';
-  if (model.startsWith('gemini'))  return 'google';
+  if (model.startsWith('claude')) return 'anthropic';
+  if (model.startsWith('gemini')) return 'google';
   return 'openai';
+}
+
+function toOpenAIMessages(messages: Message[], systemPrompt?: string) {
+  const result = messages.map(m => {
+    if (!m.images?.length) return { role: m.role, content: m.content };
+    return {
+      role: m.role,
+      content: [
+        ...m.images.map(img => ({
+          type: 'image_url',
+          image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+        })),
+        ...(m.content ? [{ type: 'text', text: m.content }] : []),
+      ],
+    };
+  });
+  if (systemPrompt) result.unshift({ role: 'system', content: systemPrompt });
+  return result;
+}
+
+function toAnthropicMessages(messages: Message[]) {
+  return messages.map(m => {
+    if (!m.images?.length) return { role: m.role, content: m.content };
+    return {
+      role: m.role,
+      content: [
+        ...m.images.map(img => ({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mimeType, data: img.data },
+        })),
+        ...(m.content ? [{ type: 'text', text: m.content }] : []),
+      ],
+    };
+  });
+}
+
+function toGeminiContents(messages: Message[]) {
+  return messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [
+      ...(m.images ?? []).map(img => ({
+        inlineData: { mimeType: img.mimeType, data: img.data },
+      })),
+      ...(m.content ? [{ text: m.content }] : []),
+    ],
+  }));
 }
 
 export async function POST(req: NextRequest) {
@@ -30,54 +77,15 @@ export async function POST(req: NextRequest) {
     return new Response(`No API key for ${provider}`, { status: 401 });
   }
 
-  let upstream: Response | undefined;
-
-  if (provider === 'openai') {
-    const allMessages = systemPrompt
-      ? [{ role: 'system', content: systemPrompt }, ...messages]
-      : messages;
-
-    upstream = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model, messages: allMessages, stream: true }),
-    });
-  } else if (provider === 'anthropic') {
-    upstream = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        ...(systemPrompt ? { system: systemPrompt } : {}),
-        max_tokens: 8096,
-        stream: true,
-      }),
-    });
-  } else {
-    // Google Gemini — handled separately via SDK, no upstream fetch needed
-  }
-
   // ── Google: use SDK ──────────────────────────────────────────────────────
   if (provider === 'google') {
     const ai = new GoogleGenAI({ apiKey });
-    const contents = messages.map(m => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
 
     let sdkStream: AsyncIterable<import('@google/genai').GenerateContentResponse>;
     try {
       sdkStream = await ai.models.generateContentStream({
         model,
-        contents,
+        contents: toGeminiContents(messages),
         ...(systemPrompt ? { config: { systemInstruction: systemPrompt } } : {}),
       });
     } catch (e) {
@@ -97,15 +105,41 @@ export async function POST(req: NextRequest) {
     return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   }
 
-  // ── OpenAI / Anthropic: parse SSE ───────────────────────────────────────
-  if (!upstream!.ok) {
-    const body = await upstream!.text();
-    return new Response(body, { status: upstream!.status });
+  // ── OpenAI / Anthropic: SSE ──────────────────────────────────────────────
+  let upstream: Response;
+
+  if (provider === 'openai') {
+    upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages: toOpenAIMessages(messages, systemPrompt), stream: true }),
+    });
+  } else {
+    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: toAnthropicMessages(messages),
+        ...(systemPrompt ? { system: systemPrompt } : {}),
+        max_tokens: 8096,
+        stream: true,
+      }),
+    });
+  }
+
+  if (!upstream.ok) {
+    const body = await upstream.text();
+    return new Response(body, { status: upstream.status });
   }
 
   const stream = new ReadableStream({
     async start(controller) {
-      const reader  = upstream!.body!.getReader();
+      const reader  = upstream.body!.getReader();
       const decoder = new TextDecoder();
       let buffer    = '';
 
@@ -125,7 +159,6 @@ export async function POST(req: NextRequest) {
           try {
             const parsed = JSON.parse(data);
             let text = '';
-
             if (provider === 'openai') {
               text = parsed.choices?.[0]?.delta?.content ?? '';
             } else {
@@ -133,7 +166,6 @@ export async function POST(req: NextRequest) {
                 text = parsed.delta.text ?? '';
               }
             }
-
             if (text) controller.enqueue(new TextEncoder().encode(text));
           } catch {
             // skip malformed lines
@@ -145,7 +177,5 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return new Response(stream, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-  });
+  return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 }
