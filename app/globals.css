@@ -302,3 +302,32 @@ header select option {
   text-align: left;
 }
 .content th { color: var(--green); background: #111; }
+
+/* ── login page ── */
+.login-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.login-box {
+  border: 1px solid var(--border);
+  padding: 40px 48px;
+  text-align: center;
+}
+
+.login-box button {
+  background: transparent;
+  color: var(--green);
+  border: 1px solid var(--green);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.login-box button:hover {
+  background: var(--green);
+  color: var(--bg);
+}

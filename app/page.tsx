@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { signOut } from 'next-auth/react';
 import { renderMarkdown } from '@/lib/markdown';
 
 type Role = 'user' | 'assistant';
@@ -148,6 +149,7 @@ export default function Home() {
         {messages.length > 0 && (
           <button onClick={() => setMessages([])}>[CLEAR]</button>
         )}
+        <button onClick={() => signOut({ callbackUrl: '/login' })}>[SIGN OUT]</button>
       </header>
 
       {showSettings && (
