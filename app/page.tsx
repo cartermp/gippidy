@@ -30,8 +30,10 @@ export default function Home() {
   const [streamingContent, setStreamingContent] = useState('');
   const [showSettings, setShowSettings]     = useState(false);
   const [serverKeys, setServerKeys]         = useState<Record<Provider, boolean>>({ openai: false, anthropic: false, google: false });
-  const bottomRef  = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const bottomRef    = useRef<HTMLDivElement>(null);
+  const messagesRef  = useRef<HTMLDivElement>(null);
+  const textareaRef  = useRef<HTMLTextAreaElement>(null);
+  const pinnedRef    = useRef(true); // true = follow the stream; false = user scrolled up
 
   useEffect(() => {
     const keys   = localStorage.getItem(KEYS_KEY);
@@ -47,8 +49,22 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
+  // Detect when the user scrolls up so we stop chasing the stream.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Only auto-scroll when pinned.
+  useEffect(() => {
+    if (pinnedRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, streamingContent]);
 
   const saveKeys = (keys: Record<Provider, string>) => {
@@ -86,6 +102,7 @@ export default function Home() {
 
     const userMessage: Message = { role: 'user', content: input.trim() };
     const newMessages = [...messages, userMessage];
+    pinnedRef.current = true;
     setMessages(newMessages);
     setInput('');
     if (textareaRef.current) {
@@ -192,7 +209,7 @@ export default function Home() {
         </div>
       )}
 
-      <div className="messages">
+      <div className="messages" ref={messagesRef}>
         {messages.length === 0 && !streaming && (
           <div className="empty">&gt; ready. select a model and start typing.</div>
         )}
