@@ -202,7 +202,7 @@ header select option {
   color: var(--fg);
   border: none;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 16px; /* must be ≥16px to prevent iOS Safari auto-zoom on focus */
   line-height: 1.6;
   padding: 4px 0;
   resize: none;
