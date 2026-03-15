@@ -165,6 +165,8 @@ header select option {
 .content {
   white-space: pre-wrap;
   word-break: break-word;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .message.user .content      { color: var(--fg); }
@@ -287,6 +289,7 @@ header select option {
   border: 1px solid #2a2a2a;
   border-radius: 0;
   overflow-x: auto;
+  max-width: 100%;
 }
 .content pre code {
   background: transparent;
@@ -296,9 +299,11 @@ header select option {
 }
 
 .content table {
+  display: block;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 0.5em 0;
-  width: 100%;
+  max-width: 100%;
   font-size: 0.9em;
 }
 .content th, .content td {
