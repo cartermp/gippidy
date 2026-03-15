@@ -82,6 +82,28 @@ header select option {
 
 .header-spacer { flex: 1; }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 540px) {
+  header {
+    flex-wrap: wrap;
+  }
+  .header-spacer {
+    display: none;
+  }
+  header select {
+    flex: 1;
+  }
+  .header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 /* ── settings panel ── */
 .settings {
   background: #080808;

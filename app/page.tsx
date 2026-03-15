@@ -133,11 +133,13 @@ export default function Home() {
           ))}
         </select>
         <div className="header-spacer" />
-        <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
-        {messages.length > 0 && (
-          <button onClick={() => setMessages([])}>[CLEAR]</button>
-        )}
-        <button onClick={() => signOut({ callbackUrl: '/login' })}>[SIGN OUT]</button>
+        <div className="header-actions">
+          <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
+          {messages.length > 0 && (
+            <button onClick={() => setMessages([])}>[CLEAR]</button>
+          )}
+          <button onClick={() => signOut({ callbackUrl: '/login' })}>[SIGN OUT]</button>
+        </div>
       </header>
 
       {showSettings && (
