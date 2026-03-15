@@ -1,4 +1,5 @@
 config.json
-.next
-.vercel
+.env*
+.next/
+.vercel/
 node_modules/
