@@ -13,19 +13,17 @@ function getProvider(model: string): Provider {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, model, apiKey: clientKey, systemPrompt } = await req.json() as {
+  const { messages, model, systemPrompt } = await req.json() as {
     messages: Message[];
     model: string;
-    apiKey?: string;
     systemPrompt?: string;
   };
 
   const provider = getProvider(model);
 
   const apiKey =
-    clientKey ||
-    (provider === 'openai'    ? process.env.OPENAI_API_KEY              : undefined) ||
-    (provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY           : undefined) ||
+    (provider === 'openai'    ? process.env.OPENAI_API_KEY               : undefined) ||
+    (provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY            : undefined) ||
     (provider === 'google'    ? process.env.GOOGLE_GENERATIVE_AI_API_KEY : undefined);
 
   if (!apiKey) {

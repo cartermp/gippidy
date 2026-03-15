@@ -6,50 +6,38 @@ import { renderMarkdown } from '@/lib/markdown';
 
 type Role = 'user' | 'assistant';
 type Message = { role: Role; content: string };
-type Provider = 'openai' | 'anthropic' | 'google';
 
-const MODELS: { id: string; label: string; provider: Provider }[] = [
-  { id: 'gpt-5.4',                     label: 'GPT-5.4',            provider: 'openai' },
-  { id: 'claude-opus-4-6',             label: 'Claude Opus 4.6',    provider: 'anthropic' },
-  { id: 'claude-sonnet-4-6',           label: 'Claude Sonnet 4.6',  provider: 'anthropic' },
-  { id: 'gemini-3.1-pro-preview',      label: 'Gemini 3.1 Pro',     provider: 'google' },
-  { id: 'gemini-3-flash-preview',      label: 'Gemini 3 Flash',     provider: 'google' },
+const MODELS = [
+  { id: 'gpt-5.4',                label: 'GPT-5.4',           provider: 'openai' },
+  { id: 'claude-opus-4-6',        label: 'Claude Opus 4.6',   provider: 'anthropic' },
+  { id: 'claude-sonnet-4-6',      label: 'Claude Sonnet 4.6', provider: 'anthropic' },
+  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro',    provider: 'google' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash',    provider: 'google' },
 ];
 
-const KEYS_KEY   = 'gippidy-keys';
 const MODEL_KEY  = 'gippidy-model';
 const SYSTEM_KEY = 'gippidy-system';
 
 export default function Home() {
-  const [messages, setMessages]             = useState<Message[]>([]);
-  const [input, setInput]                   = useState('');
-  const [model, setModel]                   = useState('claude-sonnet-4-6');
-  const [apiKeys, setApiKeys]               = useState<Record<Provider, string>>({ openai: '', anthropic: '', google: '' });
-  const [systemPrompt, setSystemPrompt]     = useState('');
-  const [streaming, setStreaming]           = useState(false);
+  const [messages, setMessages]                 = useState<Message[]>([]);
+  const [input, setInput]                       = useState('');
+  const [model, setModel]                       = useState('claude-sonnet-4-6');
+  const [systemPrompt, setSystemPrompt]         = useState('');
+  const [streaming, setStreaming]               = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
-  const [showSettings, setShowSettings]     = useState(false);
-  const [serverKeys, setServerKeys]         = useState<Record<Provider, boolean>>({ openai: false, anthropic: false, google: false });
-  const bottomRef    = useRef<HTMLDivElement>(null);
-  const messagesRef  = useRef<HTMLDivElement>(null);
-  const textareaRef  = useRef<HTMLTextAreaElement>(null);
-  const pinnedRef    = useRef(true); // true = follow the stream; false = user scrolled up
+  const [showSettings, setShowSettings]         = useState(false);
+  const bottomRef   = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pinnedRef   = useRef(true);
 
   useEffect(() => {
-    const keys   = localStorage.getItem(KEYS_KEY);
     const saved  = localStorage.getItem(MODEL_KEY);
     const system = localStorage.getItem(SYSTEM_KEY);
-    if (keys)   setApiKeys(JSON.parse(keys));
     if (saved)  setModel(saved);
     if (system) setSystemPrompt(system);
-
-    fetch('/api/config')
-      .then(r => r.json())
-      .then(setServerKeys)
-      .catch(() => {});
   }, []);
 
-  // Detect when the user scrolls up so we stop chasing the stream.
   useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
@@ -60,17 +48,11 @@ export default function Home() {
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Only auto-scroll when pinned.
   useEffect(() => {
     if (pinnedRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingContent]);
-
-  const saveKeys = (keys: Record<Provider, string>) => {
-    setApiKeys(keys);
-    localStorage.setItem(KEYS_KEY, JSON.stringify(keys));
-  };
 
   const handleModelChange = (m: string) => {
     setModel(m);
@@ -92,22 +74,12 @@ export default function Home() {
     e?.preventDefault();
     if (!input.trim() || streaming) return;
 
-    const provider = MODELS.find(m => m.id === model)?.provider ?? 'openai';
-    const apiKey   = apiKeys[provider];
-
-    if (!apiKey && !serverKeys[provider]) {
-      setShowSettings(true);
-      return;
-    }
-
     const userMessage: Message = { role: 'user', content: input.trim() };
     const newMessages = [...messages, userMessage];
     pinnedRef.current = true;
     setMessages(newMessages);
     setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setStreaming(true);
     setStreamingContent('');
 
@@ -115,8 +87,7 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // omit apiKey if empty — server will use its env var
-        body: JSON.stringify({ messages: newMessages, model, apiKey: apiKey || undefined, systemPrompt }),
+        body: JSON.stringify({ messages: newMessages, model, systemPrompt }),
       });
 
       if (!res.ok) {
@@ -171,33 +142,6 @@ export default function Home() {
 
       {showSettings && (
         <div className="settings">
-          <div className="settings-row">
-            <label>OpenAI API Key</label>
-            <input
-              type="password"
-              value={apiKeys.openai}
-              onChange={e => saveKeys({ ...apiKeys, openai: e.target.value })}
-              placeholder={serverKeys.openai ? 'server key configured' : 'sk-...'}
-            />
-          </div>
-          <div className="settings-row">
-            <label>Anthropic API Key</label>
-            <input
-              type="password"
-              value={apiKeys.anthropic}
-              onChange={e => saveKeys({ ...apiKeys, anthropic: e.target.value })}
-              placeholder={serverKeys.anthropic ? 'server key configured' : 'sk-ant-...'}
-            />
-          </div>
-          <div className="settings-row">
-            <label>Google API Key</label>
-            <input
-              type="password"
-              value={apiKeys.google}
-              onChange={e => saveKeys({ ...apiKeys, google: e.target.value })}
-              placeholder={serverKeys.google ? 'server key configured' : 'AIza...'}
-            />
-          </div>
           <div className="settings-row">
             <label>System Prompt</label>
             <textarea
