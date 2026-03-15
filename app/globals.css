@@ -88,6 +88,27 @@ header select option {
   flex-shrink: 0;
 }
 
+.share-meta {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.header-link {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.header-link:hover {
+  border-color: var(--dim);
+  color: var(--green);
+}
+
 @media (max-width: 540px) {
   header {
     flex-wrap: wrap;

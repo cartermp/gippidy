@@ -28,6 +28,7 @@ export default function Home() {
   const [streamingContent, setStreamingContent] = useState('');
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
+  const [shareLabel, setShareLabel]             = useState('[SHARE]');
   const bottomRef   = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,6 +40,16 @@ export default function Home() {
     const system = localStorage.getItem(SYSTEM_KEY);
     if (saved)  setModel(saved);
     if (system) setSystemPrompt(system);
+
+    const fork = localStorage.getItem('gippidy-fork');
+    if (fork) {
+      const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
+      setMessages(m);
+      setModel(mo);
+      localStorage.setItem(MODEL_KEY, mo);
+      if (sp) { setSystemPrompt(sp); localStorage.setItem(SYSTEM_KEY, sp); }
+      localStorage.removeItem('gippidy-fork');
+    }
   }, []);
 
   useEffect(() => {
@@ -56,6 +67,23 @@ export default function Home() {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingContent]);
+
+  const handleShare = async () => {
+    setShareLabel('[SHARING…]');
+    try {
+      const res = await fetch('/api/shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, model, systemPrompt }),
+      });
+      const { id } = await res.json();
+      await navigator.clipboard.writeText(`${window.location.origin}/share/${id}`);
+      setShareLabel('[COPIED!]');
+    } catch {
+      setShareLabel('[ERROR]');
+    }
+    setTimeout(() => setShareLabel('[SHARE]'), 3000);
+  };
 
   const handleModelChange = (m: string) => {
     setModel(m);
@@ -175,6 +203,9 @@ export default function Home() {
         <div className="header-spacer" />
         <div className="header-actions">
           <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
+          {messages.length > 0 && !streaming && (
+            <button onClick={handleShare}>{shareLabel}</button>
+          )}
           {messages.length > 0 && (
             <button onClick={() => setMessages([])}>[CLEAR]</button>
           )}
