@@ -6,14 +6,14 @@ import { renderMarkdown } from '@/lib/markdown';
 
 type Role = 'user' | 'assistant';
 type Message = { role: Role; content: string };
-type Provider = 'openai' | 'anthropic';
+type Provider = 'openai' | 'anthropic' | 'google';
 
 const MODELS: { id: string; label: string; provider: Provider }[] = [
-  { id: 'gpt-4o',                      label: 'GPT-4o',             provider: 'openai' },
-  { id: 'gpt-4o-mini',                 label: 'GPT-4o mini',        provider: 'openai' },
+  { id: 'gpt-5.4',                     label: 'GPT-5.4',            provider: 'openai' },
   { id: 'claude-opus-4-6',             label: 'Claude Opus 4.6',    provider: 'anthropic' },
   { id: 'claude-sonnet-4-6',           label: 'Claude Sonnet 4.6',  provider: 'anthropic' },
-  { id: 'claude-haiku-4-5-20251001',   label: 'Claude Haiku 4.5',   provider: 'anthropic' },
+  { id: 'gemini-3.1-pro-preview',      label: 'Gemini 3.1 Pro',     provider: 'google' },
+  { id: 'gemini-3-flash-preview',      label: 'Gemini 3 Flash',     provider: 'google' },
 ];
 
 const KEYS_KEY   = 'gippidy-keys';
@@ -24,12 +24,12 @@ export default function Home() {
   const [messages, setMessages]             = useState<Message[]>([]);
   const [input, setInput]                   = useState('');
   const [model, setModel]                   = useState('claude-sonnet-4-6');
-  const [apiKeys, setApiKeys]               = useState<Record<Provider, string>>({ openai: '', anthropic: '' });
+  const [apiKeys, setApiKeys]               = useState<Record<Provider, string>>({ openai: '', anthropic: '', google: '' });
   const [systemPrompt, setSystemPrompt]     = useState('');
   const [streaming, setStreaming]           = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [showSettings, setShowSettings]     = useState(false);
-  const [serverKeys, setServerKeys]         = useState<Record<Provider, boolean>>({ openai: false, anthropic: false });
+  const [serverKeys, setServerKeys]         = useState<Record<Provider, boolean>>({ openai: false, anthropic: false, google: false });
   const bottomRef  = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -170,6 +170,15 @@ export default function Home() {
               value={apiKeys.anthropic}
               onChange={e => saveKeys({ ...apiKeys, anthropic: e.target.value })}
               placeholder={serverKeys.anthropic ? 'server key configured' : 'sk-ant-...'}
+            />
+          </div>
+          <div className="settings-row">
+            <label>Google API Key</label>
+            <input
+              type="password"
+              value={apiKeys.google}
+              onChange={e => saveKeys({ ...apiKeys, google: e.target.value })}
+              placeholder={serverKeys.google ? 'server key configured' : 'AIza...'}
             />
           </div>
           <div className="settings-row">

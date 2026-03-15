@@ -1,11 +1,15 @@
 import { NextRequest } from 'next/server';
+import { GoogleGenAI } from '@google/genai';
 
 export const runtime = 'nodejs';
 
 type Message = { role: string; content: string };
+type Provider = 'openai' | 'anthropic' | 'google';
 
-function getProvider(model: string): 'openai' | 'anthropic' {
-  return model.startsWith('claude') ? 'anthropic' : 'openai';
+function getProvider(model: string): Provider {
+  if (model.startsWith('claude'))  return 'anthropic';
+  if (model.startsWith('gemini'))  return 'google';
+  return 'openai';
 }
 
 export async function POST(req: NextRequest) {
@@ -20,14 +24,15 @@ export async function POST(req: NextRequest) {
 
   const apiKey =
     clientKey ||
-    (provider === 'openai'    ? process.env.OPENAI_API_KEY    : undefined) ||
-    (provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY : undefined);
+    (provider === 'openai'    ? process.env.OPENAI_API_KEY              : undefined) ||
+    (provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY           : undefined) ||
+    (provider === 'google'    ? process.env.GOOGLE_GENERATIVE_AI_API_KEY : undefined);
 
   if (!apiKey) {
     return new Response(`No API key for ${provider}`, { status: 401 });
   }
 
-  let upstream: Response;
+  let upstream: Response | undefined;
 
   if (provider === 'openai') {
     const allMessages = systemPrompt
@@ -42,7 +47,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({ model, messages: allMessages, stream: true }),
     });
-  } else {
+  } else if (provider === 'anthropic') {
     upstream = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -58,17 +63,51 @@ export async function POST(req: NextRequest) {
         stream: true,
       }),
     });
+  } else {
+    // Google Gemini — handled separately via SDK, no upstream fetch needed
   }
 
-  if (!upstream.ok) {
-    const body = await upstream.text();
-    return new Response(body, { status: upstream.status });
+  // ── Google: use SDK ──────────────────────────────────────────────────────
+  if (provider === 'google') {
+    const ai = new GoogleGenAI({ apiKey });
+    const contents = messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+
+    let sdkStream: AsyncIterable<import('@google/genai').GenerateContentResponse>;
+    try {
+      sdkStream = await ai.models.generateContentStream({
+        model,
+        contents,
+        ...(systemPrompt ? { config: { systemInstruction: systemPrompt } } : {}),
+      });
+    } catch (e) {
+      return new Response(String(e), { status: 500 });
+    }
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        const enc = new TextEncoder();
+        for await (const chunk of sdkStream) {
+          if (chunk.text) controller.enqueue(enc.encode(chunk.text));
+        }
+        controller.close();
+      },
+    });
+
+    return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   }
 
-  // Parse the SSE stream from the upstream provider and emit raw text chunks.
+  // ── OpenAI / Anthropic: parse SSE ───────────────────────────────────────
+  if (!upstream!.ok) {
+    const body = await upstream!.text();
+    return new Response(body, { status: upstream!.status });
+  }
+
   const stream = new ReadableStream({
     async start(controller) {
-      const reader  = upstream.body!.getReader();
+      const reader  = upstream!.body!.getReader();
       const decoder = new TextDecoder();
       let buffer    = '';
 
@@ -92,7 +131,6 @@ export async function POST(req: NextRequest) {
             if (provider === 'openai') {
               text = parsed.choices?.[0]?.delta?.content ?? '';
             } else {
-              // Anthropic: content_block_delta events carry the text
               if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
                 text = parsed.delta.text ?? '';
               }
