@@ -181,6 +181,7 @@ export default function Home() {
       setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
     } finally {
       setStreaming(false);
+      textareaRef.current?.focus();
     }
   };
 
