@@ -45,37 +45,6 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
     month: 'short', day: 'numeric', year: 'numeric',
   });
 
-  // Unauthenticated: show teaser + sign-in prompt
-  if (!sessionResult) {
-    const firstMsg = messages.find(m => m.role === 'user')?.content ?? '';
-    const preview = firstMsg.length > 200 ? firstMsg.slice(0, 200) + '…' : firstMsg;
-    return (
-      <div className="app">
-        <header>
-          <span className="logo">GIPPIDY</span>
-          <span className="share-meta">{share.model} · {date}</span>
-        </header>
-        <div className="messages">
-          {preview && (
-            <div className="message user">
-              <span className="role">&gt;</span>
-              <span className="content">{preview}</span>
-            </div>
-          )}
-          <div className="share-gate">
-            <p>Sign in to view the full conversation.</p>
-            <form action={async () => {
-              'use server';
-              await signIn('google', { redirectTo: `/share/${id}` });
-            }}>
-              <button type="submit">[SIGN IN WITH GOOGLE]</button>
-            </form>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="app">
       <header>
@@ -83,8 +52,16 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
         <span className="share-meta">{share.model} · {date}</span>
         <div className="header-spacer" />
         <div className="header-actions">
-          <Link href="/" className="header-link">[BACK]</Link>
-          <ForkButton messages={messages} model={share.model} systemPrompt={share.system_prompt} />
+          {sessionResult && <Link href="/" className="header-link">[BACK]</Link>}
+          {sessionResult
+            ? <ForkButton messages={messages} model={share.model} systemPrompt={share.system_prompt} />
+            : <form action={async () => {
+                'use server';
+                await signIn('google', { redirectTo: `/share/${id}` });
+              }}>
+                <button type="submit">[SIGN IN TO CONTINUE]</button>
+              </form>
+          }
         </div>
       </header>
 
