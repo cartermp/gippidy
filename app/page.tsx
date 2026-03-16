@@ -47,7 +47,9 @@ export default function Home() {
   const pinnedRef          = useRef(true);
   const lastScrollTop      = useRef(0);
   const saveSettingsTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const streamBufferRef    = useRef('');
+  const receivedRef        = useRef('');   // full text received from API
+  const displayPosRef      = useRef(0);    // chars revealed so far by the display ticker
+  const streamDoneRef      = useRef(false); // true once all bytes have arrived
   const rafRef             = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputHistoryRef    = useRef<string[]>([]);
@@ -160,14 +162,59 @@ export default function Home() {
   };
 
   const doStream = async (msgs: Message[]) => {
+    // How many characters to reveal per animation frame (~60fps).
+    // Bursts larger than this are spread across multiple frames → smooth display.
+    // When the stream ends, the ticker flushes remaining text at up to 8× this rate
+    // so the tail never lingers more than ~130ms regardless of buffer size.
+    const SMOOTH_RATE = 3;
+
     pinnedRef.current = true;
     setMessages(msgs);
     setStreaming(true);
     setStreamingContent('');
     setConnected(false);
+    receivedRef.current   = '';
+    displayPosRef.current = 0;
+    streamDoneRef.current = false;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+
+    // Finalize: called by the ticker once display has caught up after the stream ends.
+    const finalize = (text: string) => {
+      setMessages(m => [...m, { role: 'assistant', content: text, html: renderMarkdown(text) }]);
+      setStreamingContent('');
+      setStreaming(false);
+      textareaRef.current?.focus();
+    };
+
+    // Display ticker: runs independently of data arrival, revealing text at a steady rate.
+    const doTick = () => {
+      const received = receivedRef.current;
+      const isDone   = streamDoneRef.current;
+      const pos      = displayPosRef.current;
+
+      if (pos < received.length) {
+        // Normal: reveal SMOOTH_RATE chars. Done: flush faster so tail clears in ~8 frames.
+        const rate   = isDone ? Math.max(SMOOTH_RATE, Math.ceil((received.length - pos) / 8)) : SMOOTH_RATE;
+        const newPos = Math.min(pos + rate, received.length);
+        displayPosRef.current = newPos;
+        setStreamingContent(received.slice(0, newPos));
+      }
+
+      if (isDone && displayPosRef.current >= received.length) {
+        finalize(received);
+        return;
+      }
+
+      rafRef.current = requestAnimationFrame(doTick);
+    };
+    rafRef.current = requestAnimationFrame(doTick);
+
+    // Abort / cleanup helper used in error paths.
+    const cancelTicker = () => {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    };
 
     try {
       const res = await fetch('/api/chat', {
@@ -178,39 +225,36 @@ export default function Home() {
       });
 
       if (!res.ok) {
+        cancelTicker();
         const err = await res.text();
         setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${err}` }]);
+        setStreamingContent('');
+        setStreaming(false);
+        textareaRef.current?.focus();
         return;
       }
 
-      const reader  = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let content    = '';
+      const reader   = res.body!.getReader();
+      const decoder  = new TextDecoder();
       let didConnect = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (!didConnect) { didConnect = true; setConnected(true); }
-        content += decoder.decode(value, { stream: true });
-        streamBufferRef.current = content;
-        if (!rafRef.current) {
-          rafRef.current = requestAnimationFrame(() => {
-            setStreamingContent(streamBufferRef.current);
-            rafRef.current = null;
-          });
-        }
+        receivedRef.current += decoder.decode(value, { stream: true });
       }
 
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-      setMessages(m => [...m, { role: 'assistant', content, html: renderMarkdown(content) }]);
-      setStreamingContent('');
+      // Signal the ticker that all bytes have arrived; it will finalize when caught up.
+      streamDoneRef.current = true;
+
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
-    } finally {
+      cancelTicker();
+      setStreamingContent('');
       setStreaming(false);
       textareaRef.current?.focus();
+      if ((err as Error).name === 'AbortError') return;
+      setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
     }
   };
 
