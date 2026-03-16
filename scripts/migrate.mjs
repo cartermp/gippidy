@@ -14,4 +14,13 @@ await pool.query(`
 `);
 
 console.log('✓ shared_chats table ready');
+
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS user_settings (
+    email         TEXT PRIMARY KEY,
+    system_prompt TEXT NOT NULL DEFAULT ''
+  )
+`);
+
+console.log('✓ user_settings table ready');
 await pool.end();

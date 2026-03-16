@@ -16,8 +16,7 @@ const MODELS = [
   { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash',    provider: 'google' },
 ];
 
-const MODEL_KEY  = 'gippidy-model';
-const SYSTEM_KEY = 'gippidy-system';
+const MODEL_KEY = 'gippidy-model';
 
 export default function Home() {
   const [messages, setMessages]                 = useState<Message[]>([]);
@@ -33,14 +32,18 @@ export default function Home() {
   const messagesRef    = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const fileRef        = useRef<HTMLInputElement>(null);
-  const pinnedRef      = useRef(true);
-  const lastScrollTop  = useRef(0);
+  const pinnedRef        = useRef(true);
+  const lastScrollTop    = useRef(0);
+  const saveSettingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const saved  = localStorage.getItem(MODEL_KEY);
-    const system = localStorage.getItem(SYSTEM_KEY);
-    if (saved)  setModel(saved);
-    if (system) setSystemPrompt(system);
+    const saved = localStorage.getItem(MODEL_KEY);
+    if (saved) setModel(saved);
+
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(({ systemPrompt }) => { if (systemPrompt) setSystemPrompt(systemPrompt); })
+      .catch(() => {});
 
     const fork = localStorage.getItem('gippidy-fork');
     if (fork) {
@@ -48,7 +51,7 @@ export default function Home() {
       setMessages(m);
       setModel(mo);
       localStorage.setItem(MODEL_KEY, mo);
-      if (sp) { setSystemPrompt(sp); localStorage.setItem(SYSTEM_KEY, sp); }
+      if (sp) { setSystemPrompt(sp); }
       localStorage.removeItem('gippidy-fork');
     }
   }, []);
@@ -100,7 +103,14 @@ export default function Home() {
 
   const handleSystemChange = (s: string) => {
     setSystemPrompt(s);
-    localStorage.setItem(SYSTEM_KEY, s);
+    if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
+    saveSettingsTimer.current = setTimeout(() => {
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt: s }),
+      });
+    }, 600);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
