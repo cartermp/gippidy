@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents } from '../lib/chat.ts';
 import { renderMarkdown } from '../lib/markdown.ts';
 
+// Inline copy of parseStreamError for unit testing (it lives in a client component)
+function parseStreamError(status: number, body: string): string {
+  if (status === 429) return '[RATE LIMITED] Wait a moment and try again.';
+  if (status === 401 || status === 403) return '[AUTH ERROR] API key issue — contact the admin.';
+  const b = body.toLowerCase();
+  if (
+    b.includes('context_length_exceeded') ||
+    b.includes('maximum context length') ||
+    b.includes('prompt is too long') ||
+    b.includes('tokens exceed') ||
+    b.includes('reduce your prompt')
+  ) return "[TOO LONG] Conversation exceeds this model's context limit. Use [CLEAR] to start fresh.";
+  if (status >= 500) return `[SERVER ERROR] The model returned an error (${status}). Try again.`;
+  return `[ERROR ${status}] ${body.slice(0, 120)}`;
+}
+
 // ── getProvider ──────────────────────────────────────────────────────────────
 
 test('getProvider: claude models → anthropic', () => {
@@ -106,4 +122,38 @@ test('renderMarkdown: code block gets hljs class', () => {
 test('renderMarkdown: plain text wrapped in paragraph', () => {
   const html = renderMarkdown('hello world');
   assert.ok(html.includes('<p>'), `got: ${html}`);
+});
+
+test('renderMarkdown: escapes raw HTML from model output', () => {
+  const html = renderMarkdown('<script>alert(1)</script>');
+  assert.ok(!html.includes('<script>'), `script tag should be escaped, got: ${html}`);
+});
+
+test('renderMarkdown: neutralizes javascript: links', () => {
+  const html = renderMarkdown('[click](javascript:alert(1))');
+  assert.ok(!html.includes('javascript:'), `javascript: URL should be removed, got: ${html}`);
+});
+
+// ── parseStreamError ─────────────────────────────────────────────────────────
+
+test('parseStreamError: 429 → rate limit message', () => {
+  assert.ok(parseStreamError(429, '').includes('RATE LIMITED'));
+});
+
+test('parseStreamError: 401 → auth message', () => {
+  assert.ok(parseStreamError(401, '').includes('AUTH ERROR'));
+});
+
+test('parseStreamError: context length error body → too long message', () => {
+  assert.ok(parseStreamError(400, 'context_length_exceeded').includes('TOO LONG'));
+  assert.ok(parseStreamError(400, 'This model\'s maximum context length is 128k').includes('TOO LONG'));
+  assert.ok(parseStreamError(400, 'prompt is too long').includes('TOO LONG'));
+});
+
+test('parseStreamError: 500 → server error message', () => {
+  assert.ok(parseStreamError(500, 'internal error').includes('SERVER ERROR'));
+});
+
+test('parseStreamError: unknown error includes status code', () => {
+  assert.ok(parseStreamError(400, 'bad request').includes('400'));
 });

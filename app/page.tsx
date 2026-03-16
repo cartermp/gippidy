@@ -18,6 +18,21 @@ const MODELS = [
 
 const MODEL_KEY = 'gippidy-model';
 
+function parseStreamError(status: number, body: string): string {
+  if (status === 429) return '[RATE LIMITED] Wait a moment and try again.';
+  if (status === 401 || status === 403) return '[AUTH ERROR] API key issue — contact the admin.';
+  const b = body.toLowerCase();
+  if (
+    b.includes('context_length_exceeded') ||
+    b.includes('maximum context length') ||
+    b.includes('prompt is too long') ||
+    b.includes('tokens exceed') ||
+    b.includes('reduce your prompt')
+  ) return '[TOO LONG] Conversation exceeds this model\'s context limit. Use [CLEAR] to start fresh.';
+  if (status >= 500) return `[SERVER ERROR] The model returned an error (${status}). Try again.`;
+  return `[ERROR ${status}] ${body.slice(0, 120)}`;
+}
+
 function readImageFiles(files: File[], onEach: (img: Image) => void) {
   files.forEach(file => {
     const reader = new FileReader();
@@ -40,7 +55,6 @@ export default function Home() {
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
-  const bottomRef          = useRef<HTMLDivElement>(null);
   const messagesRef        = useRef<HTMLDivElement>(null);
   const textareaRef        = useRef<HTMLTextAreaElement>(null);
   const fileRef            = useRef<HTMLInputElement>(null);
@@ -220,14 +234,14 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: msgs, model, systemPrompt }),
+        body: JSON.stringify({ messages: msgs.map(({ html: _, ...m }) => m), model, systemPrompt }),
         signal: controller.signal,
       });
 
       if (!res.ok) {
         cancelTicker();
-        const err = await res.text();
-        setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${err}` }]);
+        const body = await res.text();
+        setMessages(m => [...m, { role: 'assistant', content: parseStreamError(res.status, body) }]);
         setStreamingContent('');
         setStreaming(false);
         textareaRef.current?.focus();
@@ -284,13 +298,7 @@ export default function Home() {
     await doStream([...messages, userMessage]);
   };
 
-  const handleRetry = async () => {
-    const retryMsgs = messages[messages.length - 1]?.role === 'assistant'
-      ? messages.slice(0, -1)
-      : messages;
-    if (retryMsgs.length === 0) return;
-    await doStream(retryMsgs);
-  };
+  const handleRetry = () => doStream(messages.slice(0, -1));
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -403,7 +411,6 @@ export default function Home() {
             }
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
       <form

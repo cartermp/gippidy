@@ -12,6 +12,24 @@ marked.use(
   }),
 );
 
+marked.use({
+  renderer: {
+    // Escape raw HTML from model output instead of rendering it.
+    // This blocks <script>, <img onerror=...>, and similar injection vectors.
+    // Markdown-generated tags (e.g. <strong>, <code>) are unaffected.
+    html({ text }) {
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    },
+  },
+
+  // Neutralize javascript: URLs in links and images before rendering.
+  walkTokens(token) {
+    if ((token.type === 'link' || token.type === 'image') && token.href) {
+      if (/^javascript:/i.test(token.href.trim())) token.href = '#';
+    }
+  },
+});
+
 export function renderMarkdown(text: string): string {
   const html = marked.parse(text, { async: false }) as string;
   // Wrap each <pre> in a .code-block and inject a [COPY] button

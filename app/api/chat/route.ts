@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       const reader  = upstream.body!.getReader();
       const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
       let buffer    = '';
 
       while (true) {
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest) {
                 text = parsed.delta.text ?? '';
               }
             }
-            if (text) controller.enqueue(new TextEncoder().encode(text));
+            if (text) controller.enqueue(encoder.encode(text));
           } catch {
             // skip malformed lines
           }
