@@ -51,6 +51,7 @@ header {
   font-size: 15px;
   letter-spacing: 3px;
   margin-right: 4px;
+  text-decoration: none;
 }
 
 header select,

@@ -206,7 +206,7 @@ export default function Home() {
   return (
     <div className="app">
       <header>
-        <span className="logo">GIPPIDY</span>
+        <a className="logo" href="/">GIPPIDY</a>
         <select value={model} onChange={e => handleModelChange(e.target.value)}>
           {MODELS.map(m => (
             <option key={m.id} value={m.id}>{m.label}</option>
