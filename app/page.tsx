@@ -29,11 +29,12 @@ export default function Home() {
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
-  const bottomRef   = useRef<HTMLDivElement>(null);
-  const messagesRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileRef     = useRef<HTMLInputElement>(null);
-  const pinnedRef   = useRef(true);
+  const bottomRef      = useRef<HTMLDivElement>(null);
+  const messagesRef    = useRef<HTMLDivElement>(null);
+  const textareaRef    = useRef<HTMLTextAreaElement>(null);
+  const fileRef        = useRef<HTMLInputElement>(null);
+  const pinnedRef      = useRef(true);
+  const lastScrollTop  = useRef(0);
 
   useEffect(() => {
     const saved  = localStorage.getItem(MODEL_KEY);
@@ -56,15 +57,22 @@ export default function Home() {
     const el = messagesRef.current;
     if (!el) return;
     const onScroll = () => {
-      pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (atBottom) {
+        pinnedRef.current = true;
+      } else if (el.scrollTop < lastScrollTop.current) {
+        // Only unpin when the user actually scrolls up, not on viewport resize
+        pinnedRef.current = false;
+      }
+      lastScrollTop.current = el.scrollTop;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
   useEffect(() => {
-    if (pinnedRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (pinnedRef.current && messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages, streamingContent]);
 
@@ -137,6 +145,10 @@ export default function Home() {
     e?.preventDefault();
     if ((!input.trim() && pendingImages.length === 0) || streaming) return;
 
+    // Focus synchronously here — iOS only honours programmatic focus
+    // when called within the originating user gesture handler.
+    textareaRef.current?.focus();
+
     const userMessage: Message = {
       role: 'user',
       content: input.trim(),
@@ -181,7 +193,6 @@ export default function Home() {
       setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
     } finally {
       setStreaming(false);
-      textareaRef.current?.focus();
     }
   };
 
