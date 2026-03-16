@@ -212,6 +212,7 @@ export default function Home() {
       setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
     } finally {
       setStreaming(false);
+      textareaRef.current?.focus();
     }
   };
 
@@ -311,7 +312,6 @@ export default function Home() {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder="type a message… (enter to send, shift+enter for newline)"
-            disabled={streaming}
             rows={1}
           />
           <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleImageSelect} style={{ display: 'none' }} />
