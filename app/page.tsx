@@ -18,6 +18,17 @@ const MODELS = [
 
 const MODEL_KEY = 'gippidy-model';
 
+function readImageFiles(files: File[], onEach: (img: Image) => void) {
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = (reader.result as string).split(',')[1];
+      onEach({ data, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Home() {
   const [messages, setMessages]                 = useState<Message[]>([]);
   const [input, setInput]                       = useState('');
@@ -29,15 +40,19 @@ export default function Home() {
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
-  const bottomRef      = useRef<HTMLDivElement>(null);
-  const messagesRef    = useRef<HTMLDivElement>(null);
-  const textareaRef    = useRef<HTMLTextAreaElement>(null);
-  const fileRef        = useRef<HTMLInputElement>(null);
-  const pinnedRef        = useRef(true);
-  const lastScrollTop    = useRef(0);
-  const saveSettingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const streamBufferRef  = useRef('');
-  const rafRef           = useRef<number | null>(null);
+  const bottomRef          = useRef<HTMLDivElement>(null);
+  const messagesRef        = useRef<HTMLDivElement>(null);
+  const textareaRef        = useRef<HTMLTextAreaElement>(null);
+  const fileRef            = useRef<HTMLInputElement>(null);
+  const pinnedRef          = useRef(true);
+  const lastScrollTop      = useRef(0);
+  const saveSettingsTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamBufferRef    = useRef('');
+  const rafRef             = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const inputHistoryRef    = useRef<string[]>([]);
+  const historyIndexRef    = useRef(-1);
+  const draftInputRef      = useRef('');
 
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
@@ -67,7 +82,6 @@ export default function Home() {
       if (atBottom) {
         pinnedRef.current = true;
       } else if (el.scrollTop < lastScrollTop.current) {
-        // Only unpin when the user actually scrolls up, not on viewport resize
         pinnedRef.current = false;
       }
       lastScrollTop.current = el.scrollTop;
@@ -118,6 +132,7 @@ export default function Home() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
+    historyIndexRef.current = -1;
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   };
@@ -130,58 +145,36 @@ export default function Home() {
 
     if (imageFiles.length === 0) return;
     e.preventDefault();
-    imageFiles.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const data = (reader.result as string).split(',')[1];
-        setPendingImages(imgs => [...imgs, { data, mimeType: file.type }]);
-      };
-      reader.readAsDataURL(file);
-    });
+    readImageFiles(imageFiles, img => setPendingImages(imgs => [...imgs, img]));
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const data = dataUrl.split(',')[1];
-        setPendingImages(imgs => [...imgs, { data, mimeType: file.type }]);
-      };
-      reader.readAsDataURL(file);
-    });
+    readImageFiles(Array.from(e.target.files ?? []), img => setPendingImages(imgs => [...imgs, img]));
     e.target.value = '';
   };
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if ((!input.trim() && pendingImages.length === 0) || streaming) return;
+  const handleDrop = (e: React.DragEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    readImageFiles(files, img => setPendingImages(imgs => [...imgs, img]));
+  };
 
-    // Focus synchronously here — iOS only honours programmatic focus
-    // when called within the originating user gesture handler.
-    textareaRef.current?.focus();
-
-    const userMessage: Message = {
-      role: 'user',
-      content: input.trim(),
-      ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
-    };
-    const newMessages = [...messages, userMessage];
+  const doStream = async (msgs: Message[]) => {
     pinnedRef.current = true;
-    setMessages(newMessages);
-    setInput('');
-    setPendingImages([]);
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    setMessages(msgs);
     setStreaming(true);
     setStreamingContent('');
     setConnected(false);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages, model, systemPrompt }),
+        body: JSON.stringify({ messages: msgs, model, systemPrompt }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -192,7 +185,7 @@ export default function Home() {
 
       const reader  = res.body!.getReader();
       const decoder = new TextDecoder();
-      let content   = '';
+      let content    = '';
       let didConnect = false;
 
       while (true) {
@@ -213,6 +206,7 @@ export default function Home() {
       setMessages(m => [...m, { role: 'assistant', content, html: renderMarkdown(content) }]);
       setStreamingContent('');
     } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
       setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
     } finally {
       setStreaming(false);
@@ -220,13 +214,69 @@ export default function Home() {
     }
   };
 
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if ((!input.trim() && pendingImages.length === 0) || streaming) return;
+
+    // Focus synchronously here — iOS only honours programmatic focus
+    // when called within the originating user gesture handler.
+    textareaRef.current?.focus();
+
+    const trimmed = input.trim();
+    if (trimmed) {
+      inputHistoryRef.current = [trimmed, ...inputHistoryRef.current].slice(0, 50);
+      historyIndexRef.current = -1;
+    }
+
+    const userMessage: Message = {
+      role: 'user',
+      content: trimmed,
+      ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
+    };
+    setInput('');
+    setPendingImages([]);
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
+    await doStream([...messages, userMessage]);
+  };
+
+  const handleRetry = async () => {
+    const retryMsgs = messages[messages.length - 1]?.role === 'assistant'
+      ? messages.slice(0, -1)
+      : messages;
+    if (retryMsgs.length === 0) return;
+    await doStream(retryMsgs);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       if (window.matchMedia('(pointer: coarse)').matches) return;
       e.preventDefault();
       handleSubmit();
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      const history = inputHistoryRef.current;
+      if (!history.length) return;
+      const el = e.currentTarget;
+      const firstNewline = input.indexOf('\n');
+      const firstLineEnd = firstNewline === -1 ? input.length : firstNewline;
+      if (el.selectionStart > firstLineEnd) return;
+      e.preventDefault();
+      if (historyIndexRef.current === -1) draftInputRef.current = input;
+      historyIndexRef.current = Math.min(historyIndexRef.current + 1, history.length - 1);
+      setInput(inputHistoryRef.current[historyIndexRef.current]);
+    }
+    if (e.key === 'ArrowDown') {
+      if (historyIndexRef.current === -1) return;
+      historyIndexRef.current--;
+      setInput(historyIndexRef.current === -1
+        ? draftInputRef.current
+        : inputHistoryRef.current[historyIndexRef.current]);
     }
   };
+
+  const lastIsAssistant = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
 
   return (
     <div className="app">
@@ -236,8 +286,14 @@ export default function Home() {
         <div className="header-spacer" />
         <div className="header-actions">
           <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
+          {streaming && (
+            <button onClick={() => abortControllerRef.current?.abort()}>[STOP]</button>
+          )}
           {messages.length > 0 && !streaming && (
             <button onClick={handleShare}>{shareLabel}</button>
+          )}
+          {lastIsAssistant && !streaming && (
+            <button onClick={handleRetry}>[RETRY]</button>
           )}
           {messages.length > 0 && (
             <button onClick={() => setMessages([])}>[CLEAR]</button>
@@ -306,7 +362,12 @@ export default function Home() {
         <div ref={bottomRef} />
       </div>
 
-      <form className="input-area" onSubmit={handleSubmit}>
+      <form
+        className="input-area"
+        onSubmit={handleSubmit}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+      >
         {pendingImages.length > 0 && (
           <div className="pending-images">
             {pendingImages.map((img, i) => (

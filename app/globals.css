@@ -401,8 +401,32 @@ header select option {
   border: 1px solid #2a2a2a;
 }
 
-.content pre {
+.code-block {
+  position: relative;
   margin: 0.6em 0;
+}
+
+.copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: #111;
+  color: var(--dim);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+
+.code-block:hover .copy-btn { opacity: 1; }
+.copy-btn:hover { color: var(--green); border-color: var(--dim); }
+
+.content pre {
+  margin: 0;
   border: 1px solid #2a2a2a;
   border-radius: 0;
   overflow-x: auto;

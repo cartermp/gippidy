@@ -13,5 +13,10 @@ marked.use(
 );
 
 export function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false }) as string;
+  const html = marked.parse(text, { async: false }) as string;
+  // Wrap each <pre> in a .code-block and inject a [COPY] button
+  return html
+    .replace(/<pre>/g,
+      `<div class="code-block"><button class="copy-btn" onclick="navigator.clipboard.writeText(this.nextElementSibling.querySelector('code').textContent);this.textContent='[COPIED!]';setTimeout(()=>this.textContent='[COPY]',2000)">[COPY]</button><pre>`)
+    .replace(/<\/pre>/g, '</pre></div>');
 }
