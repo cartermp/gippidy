@@ -25,6 +25,7 @@ export default function Home() {
   const [systemPrompt, setSystemPrompt]         = useState('');
   const [streaming, setStreaming]               = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [connected, setConnected]               = useState(false);
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
@@ -174,6 +175,7 @@ export default function Home() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setStreaming(true);
     setStreamingContent('');
+    setConnected(false);
 
     try {
       const res = await fetch('/api/chat', {
@@ -191,10 +193,12 @@ export default function Home() {
       const reader  = res.body!.getReader();
       const decoder = new TextDecoder();
       let content   = '';
+      let didConnect = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (!didConnect) { didConnect = true; setConnected(true); }
         content += decoder.decode(value, { stream: true });
         streamBufferRef.current = content;
         if (!rafRef.current) {
@@ -290,7 +294,12 @@ export default function Home() {
             <span className="role">#</span>
             {streamingContent
               ? <div className="content" dangerouslySetInnerHTML={{ __html: renderMarkdown(streamingContent) }} />
-              : <span className="content thinking">...</span>
+              : <span className="content thinking">
+                  {connected
+                    ? <>thinking<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
+                    : <span className="waiting-cursor">▋</span>
+                  }
+                </span>
             }
           </div>
         )}
