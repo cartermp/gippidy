@@ -227,11 +227,7 @@ export default function Home() {
     <div className="app">
       <header>
         <a className="logo" href="/">GIPPIDY</a>
-        <select value={model} onChange={e => handleModelChange(e.target.value)}>
-          {MODELS.map(m => (
-            <option key={m.id} value={m.id}>{m.label}</option>
-          ))}
-        </select>
+        <span className="model-label">{MODELS.find(m => m.id === model)?.label}</span>
         <div className="header-spacer" />
         <div className="header-actions">
           <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
@@ -247,6 +243,14 @@ export default function Home() {
 
       {showSettings && (
         <div className="settings">
+          <div className="settings-row">
+            <label>Model</label>
+            <select value={model} onChange={e => handleModelChange(e.target.value)}>
+              {MODELS.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="settings-row">
             <label>System Prompt</label>
             <textarea

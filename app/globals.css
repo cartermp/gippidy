@@ -94,6 +94,11 @@ header select option {
   font-size: 12px;
 }
 
+.model-label {
+  color: var(--dim);
+  font-size: 12px;
+}
+
 .header-link {
   background: transparent;
   color: var(--fg);
@@ -116,9 +121,6 @@ header select option {
   }
   .header-spacer {
     display: none;
-  }
-  header select {
-    flex: 1;
   }
   .header-actions {
     width: 100%;
@@ -151,6 +153,7 @@ header select option {
   flex-shrink: 0;
 }
 
+.settings-row select,
 .settings-row input,
 .settings-row textarea {
   flex: 1;
