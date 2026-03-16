@@ -6,7 +6,7 @@ import { renderMarkdown } from '@/lib/markdown';
 
 type Role = 'user' | 'assistant';
 type Image = { data: string; mimeType: string }; // base64, no prefix
-type Message = { role: Role; content: string; images?: Image[] };
+type Message = { role: Role; content: string; html?: string; images?: Image[] };
 
 const MODELS = [
   { id: 'gpt-5.4',                label: 'GPT-5.4',           provider: 'openai' },
@@ -35,6 +35,8 @@ export default function Home() {
   const pinnedRef        = useRef(true);
   const lastScrollTop    = useRef(0);
   const saveSettingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamBufferRef  = useRef('');
+  const rafRef           = useRef<number | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
@@ -194,10 +196,17 @@ export default function Home() {
         const { done, value } = await reader.read();
         if (done) break;
         content += decoder.decode(value, { stream: true });
-        setStreamingContent(content);
+        streamBufferRef.current = content;
+        if (!rafRef.current) {
+          rafRef.current = requestAnimationFrame(() => {
+            setStreamingContent(streamBufferRef.current);
+            rafRef.current = null;
+          });
+        }
       }
 
-      setMessages(m => [...m, { role: 'assistant', content }]);
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+      setMessages(m => [...m, { role: 'assistant', content, html: renderMarkdown(content) }]);
       setStreamingContent('');
     } catch (err) {
       setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
@@ -264,7 +273,7 @@ export default function Home() {
                 </div>
               )}
               {msg.role === 'assistant'
-                ? <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
                 : msg.content && <span>{msg.content}</span>
               }
             </div>
