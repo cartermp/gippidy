@@ -307,7 +307,11 @@ export default function Home() {
           />
           <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleImageSelect} style={{ display: 'none' }} />
           <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[IMG]</button>
-          <button type="submit" disabled={streaming || (!input.trim() && pendingImages.length === 0)}>
+          <button
+            type="submit"
+            disabled={streaming || (!input.trim() && pendingImages.length === 0)}
+            onPointerDown={(e) => e.preventDefault()}
+          >
             {streaming ? '[…]' : '[SEND]'}
           </button>
         </div>
