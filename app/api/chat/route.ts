@@ -1,63 +1,8 @@
 import { NextRequest } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, type Message } from '@/lib/chat';
 
 export const runtime = 'nodejs';
-
-type Image = { data: string; mimeType: string };
-type Message = { role: string; content: string; images?: Image[] };
-type Provider = 'openai' | 'anthropic' | 'google';
-
-function getProvider(model: string): Provider {
-  if (model.startsWith('claude')) return 'anthropic';
-  if (model.startsWith('gemini')) return 'google';
-  return 'openai';
-}
-
-function toOpenAIMessages(messages: Message[], systemPrompt?: string) {
-  const result = messages.map(m => {
-    if (!m.images?.length) return { role: m.role, content: m.content };
-    return {
-      role: m.role,
-      content: [
-        ...m.images.map(img => ({
-          type: 'image_url',
-          image_url: { url: `data:${img.mimeType};base64,${img.data}` },
-        })),
-        ...(m.content ? [{ type: 'text', text: m.content }] : []),
-      ],
-    };
-  });
-  if (systemPrompt) result.unshift({ role: 'system', content: systemPrompt });
-  return result;
-}
-
-function toAnthropicMessages(messages: Message[]) {
-  return messages.map(m => {
-    if (!m.images?.length) return { role: m.role, content: m.content };
-    return {
-      role: m.role,
-      content: [
-        ...m.images.map(img => ({
-          type: 'image',
-          source: { type: 'base64', media_type: img.mimeType, data: img.data },
-        })),
-        ...(m.content ? [{ type: 'text', text: m.content }] : []),
-      ],
-    };
-  });
-}
-
-function toGeminiContents(messages: Message[]) {
-  return messages.map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [
-      ...(m.images ?? []).map(img => ({
-        inlineData: { mimeType: img.mimeType, data: img.data },
-      })),
-      ...(m.content ? [{ text: m.content }] : []),
-    ],
-  }));
-}
 
 export async function POST(req: NextRequest) {
   const { messages, model, systemPrompt } = await req.json() as {

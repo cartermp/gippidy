@@ -9,8 +9,11 @@ A minimal LLM chat app built with Next.js 15, deployed on Vercel. The guiding co
 ```bash
 pnpm dev          # local dev server
 pnpm build        # production build (run to verify before committing)
+pnpm test         # unit tests — run after any change to lib/chat.ts or lib/markdown.ts
 pnpm db:migrate   # create DB tables (run once)
 ```
+
+**Run `pnpm test` as you work** — after any change to `lib/chat.ts`, `lib/markdown.ts`, or `app/api/chat/route.ts`, run the tests to catch regressions.
 
 ## Architecture
 
@@ -30,8 +33,12 @@ app/
     shares/[id]/route.ts          # GET — fetch a share
 
 lib/
+  chat.ts                         # pure message-conversion functions (tested)
   db.ts                           # pg Pool singleton + query helper
   markdown.ts                     # marked + marked-highlight + highlight.js setup
+
+tests/
+  unit.test.ts                    # node:test unit tests for lib/chat.ts + lib/markdown.ts
 
 auth.ts                           # NextAuth config (Google provider, email allowlist)
 middleware.ts                     # auth guard for all non-login routes

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs"
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "test": "node --experimental-strip-types --test tests/unit.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.45.0",
@@ -24,6 +25,7 @@
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
