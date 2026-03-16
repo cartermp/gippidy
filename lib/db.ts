@@ -6,3 +6,4 @@ const pool = new Pool({
 });
 
 export const query = (sql: string, params?: unknown[]) => pool.query(sql, params);
+DATABASE_URL

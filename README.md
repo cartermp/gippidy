@@ -27,7 +27,7 @@ ALLOWED_EMAIL=you@example.com,colleague@example.com
 AUTH_SECRET=...
 
 # Postgres (Neon)
-POSTGRES_URL=postgres://...
+DATABASE_URL=postgres://...
 
 # LLM API keys — any subset works; models without a key will return a 401
 OPENAI_API_KEY=sk-...
@@ -60,7 +60,7 @@ Open [http://localhost:3000](http://localhost:3000).
 vercel deploy
 ```
 
-Add all variables from `.env.local` to your Vercel project (Settings → Environment Variables). If you use Vercel's Neon integration, `POSTGRES_URL` will be set automatically.
+Add all variables from `.env.local` to your Vercel project (Settings → Environment Variables). If you use Vercel's Neon integration, `DATABASE_URL` will be set automatically.
 
 Add your production Vercel URL to the authorized redirect URIs in Google Cloud Console.
 

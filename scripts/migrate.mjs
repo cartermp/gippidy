@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-const pool = new pg.Pool({ connectionString: process.env.POSTGRES_URL });
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
 await pool.query(`
   CREATE TABLE IF NOT EXISTS shared_chats (
