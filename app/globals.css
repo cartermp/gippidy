@@ -409,6 +409,30 @@ header select option {
 .content th { color: var(--green); background: #111; }
 
 /* ── login page ── */
+.share-gate {
+  color: var(--dim);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.share-gate button {
+  background: transparent;
+  color: var(--green);
+  border: 1px solid var(--green);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.share-gate button:hover {
+  background: var(--green);
+  color: var(--bg);
+}
+
 .login-page {
   display: flex;
   justify-content: center;

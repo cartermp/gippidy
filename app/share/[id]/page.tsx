@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { auth, signIn } from '@/auth';
 import { query } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
 import ForkButton from './fork-button';
@@ -31,15 +32,49 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await query('SELECT * FROM shared_chats WHERE id = $1', [id]);
+  const [sessionResult, dbResult] = await Promise.all([
+    auth(),
+    query('SELECT * FROM shared_chats WHERE id = $1', [id]),
+  ]);
 
-  if (result.rows.length === 0) notFound();
+  if (dbResult.rows.length === 0) notFound();
 
-  const share = result.rows[0];
+  const share = dbResult.rows[0];
   const messages: Message[] = share.messages;
   const date = new Date(share.created_at).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   });
+
+  // Unauthenticated: show teaser + sign-in prompt
+  if (!sessionResult) {
+    const firstMsg = messages.find(m => m.role === 'user')?.content ?? '';
+    const preview = firstMsg.length > 200 ? firstMsg.slice(0, 200) + '…' : firstMsg;
+    return (
+      <div className="app">
+        <header>
+          <span className="logo">GIPPIDY</span>
+          <span className="share-meta">{share.model} · {date}</span>
+        </header>
+        <div className="messages">
+          {preview && (
+            <div className="message user">
+              <span className="role">&gt;</span>
+              <span className="content">{preview}</span>
+            </div>
+          )}
+          <div className="share-gate">
+            <p>Sign in to view the full conversation.</p>
+            <form action={async () => {
+              'use server';
+              await signIn('google', { redirectTo: `/share/${id}` });
+            }}>
+              <button type="submit">[SIGN IN WITH GOOGLE]</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">

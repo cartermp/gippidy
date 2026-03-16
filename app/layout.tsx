@@ -3,6 +3,7 @@ import './globals.css';
 import 'highlight.js/styles/atom-one-dark.min.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL ?? 'https://www.gippidy.chat'),
   title: 'GIPPIDY',
   description: 'minimal llm chat',
 };
