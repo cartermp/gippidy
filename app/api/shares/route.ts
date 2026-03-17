@@ -8,7 +8,14 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { messages, model, systemPrompt } = await req.json();
+  const body = await req.json();
+  if (JSON.stringify(body).length > 500_000) {
+    return Response.json(
+      { error: 'Chat too large to share. Try removing image attachments first.' },
+      { status: 413 },
+    );
+  }
+  const { messages, model, systemPrompt } = body;
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
 
   await query(

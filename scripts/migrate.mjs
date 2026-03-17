@@ -42,4 +42,14 @@ await pool.query(`
 `);
 console.log('✓ chat_histories table ready');
 
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS rate_limits (
+    email  TEXT NOT NULL,
+    bucket TIMESTAMPTZ NOT NULL,
+    count  INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (email, bucket)
+  )
+`);
+console.log('✓ rate_limits table ready');
+
 await pool.end();

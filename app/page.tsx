@@ -157,9 +157,15 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages, model, systemPrompt }),
       });
-      const { id } = await res.json();
-      await navigator.clipboard.writeText(`${window.location.origin}/share/${id}`);
-      setShareLabel('[COPIED!]');
+      if (!res.ok) {
+        const { error } = await res.json();
+        setShareLabel('[TOO LARGE]');
+        setTimeout(() => alert(error), 0);
+      } else {
+        const { id } = await res.json();
+        await navigator.clipboard.writeText(`${window.location.origin}/share/${id}`);
+        setShareLabel('[COPIED!]');
+      }
     } catch {
       setShareLabel('[ERROR]');
     }
