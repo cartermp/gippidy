@@ -283,6 +283,70 @@ header select option {
 .message:hover .msg-copy-btn { opacity: 1; }
 .msg-copy-btn:hover { color: var(--green); border-color: var(--border); }
 
+.saved-flash {
+  color: var(--green);
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.msg-edit-btn {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--dim);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.message:hover .msg-edit-btn { opacity: 1; }
+.msg-edit-btn:hover { color: var(--blue); border-color: var(--border); }
+
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.edit-form textarea {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--green);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 4px 8px;
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-actions button {
+  background: transparent;
+  color: var(--green);
+  border: 1px solid var(--green);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.edit-actions button:hover {
+  background: var(--green);
+  color: var(--bg);
+}
+
 .role {
   flex-shrink: 0;
   font-weight: bold;

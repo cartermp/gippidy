@@ -71,6 +71,9 @@ export default function Home() {
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
   const [showScrollBtn, setShowScrollBtn]       = useState(false);
   const [copiedMsgIndex, setCopiedMsgIndex]     = useState<number | null>(null);
+  const [editingIndex, setEditingIndex]         = useState<number | null>(null);
+  const [editingContent, setEditingContent]     = useState('');
+  const [savedFlash, setSavedFlash]             = useState(false);
   const [saveHistory, setSaveHistory]           = useState(false);
   const [showHistory, setShowHistory]           = useState(false);
   const [historyItems, setHistoryItems]         = useState<HistoryItem[]>([]);
@@ -112,6 +115,7 @@ export default function Home() {
       localStorage.setItem(MODEL_KEY, mo);
       if (sp) { setSystemPrompt(sp); }
       localStorage.removeItem('gippidy-fork');
+      chatIdRef.current = null; // fork always starts a new history entry
     }
   }, []);
 
@@ -304,6 +308,8 @@ export default function Home() {
             });
             const { id } = await res.json();
             chatIdRef.current = id;
+            setSavedFlash(true);
+            setTimeout(() => setSavedFlash(false), 2000);
           } catch { /* non-critical */ }
         })();
       }
@@ -367,11 +373,20 @@ export default function Home() {
 
     } catch (err) {
       cancelTicker();
+      const partial = receivedRef.current;
       setStreamingContent('');
       setStreaming(false);
       textareaRef.current?.focus();
-      if ((err as Error).name === 'AbortError') return;
-      setMessages(m => [...m, { role: 'assistant', content: `[ERROR] ${String(err)}` }]);
+      if ((err as Error).name === 'AbortError') {
+        if (partial) finalize(partial); // preserve whatever arrived before STOP
+        return;
+      }
+      const errMsg = `[ERROR] ${String(err)}`;
+      if (partial) {
+        finalize(partial + '\n\n' + errMsg);
+      } else {
+        setMessages(m => [...m, { role: 'assistant', content: errMsg }]);
+      }
     }
   };
 
@@ -442,13 +457,42 @@ export default function Home() {
     setTimeout(() => setCopiedMsgIndex(prev => prev === index ? null : prev), 2000);
   };
 
+  const startEdit = (i: number) => {
+    setEditingIndex(i);
+    setEditingContent(messages[i].content);
+  };
+
+  const confirmEdit = () => {
+    if (editingIndex === null) return;
+    const edited: Message = { ...messages[editingIndex], content: editingContent };
+    setEditingIndex(null);
+    doStream([...messages.slice(0, editingIndex), edited]);
+  };
+
+  const handleExport = () => {
+    const modelLabel = MODELS.find(m => m.id === model)?.label ?? model;
+    const date = new Date().toISOString().slice(0, 10);
+    const lines: string[] = [`# Chat — ${date}`, ``, `**Model:** ${modelLabel}`, ``];
+    for (const msg of messages) {
+      lines.push(`---`, ``, `**${msg.role === 'user' ? 'User' : 'Assistant'}:**`, ``, msg.content, ``);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `gippidy-${date}.md`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const lastIsAssistant = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
 
   return (
     <div className="app">
       <header>
         <a className="logo" href="/">GIPPIDY</a>
-        <span className="model-label">{MODELS.find(m => m.id === model)?.label}</span>
+        <span className="model-label">
+          {MODELS.find(m => m.id === model)?.label}
+          {savedFlash && <span className="saved-flash"> ✓ saved</span>}
+        </span>
         <div className="header-spacer" />
         <div className="header-actions">
           <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
@@ -460,6 +504,9 @@ export default function Home() {
           )}
           {messages.length > 0 && !streaming && (
             <button onClick={handleShare}>{shareLabel}</button>
+          )}
+          {messages.length > 0 && !streaming && (
+            <button onClick={handleExport}>[EXPORT]</button>
           )}
           {lastIsAssistant && !streaming && (
             <button onClick={handleRetry}>[RETRY]</button>
@@ -535,15 +582,32 @@ export default function Home() {
                     ))}
                   </div>
                 )}
-                {msg.role === 'assistant'
-                  ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
-                  : msg.content && <span>{msg.content}</span>
-                }
+                {editingIndex === i ? (
+                  <div className="edit-form">
+                    <textarea
+                      value={editingContent}
+                      onChange={e => setEditingContent(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirmEdit(); if (e.key === 'Escape') setEditingIndex(null); }}
+                      autoFocus
+                    />
+                    <div className="edit-actions">
+                      <button type="button" onClick={confirmEdit}>[SEND]</button>
+                      <button type="button" onClick={() => setEditingIndex(null)}>[CANCEL]</button>
+                    </div>
+                  </div>
+                ) : (
+                  msg.role === 'assistant'
+                    ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
+                    : msg.content && <span>{msg.content}</span>
+                )}
               </div>
-              {msg.role === 'assistant' && (
+              {msg.role === 'assistant' && editingIndex === null && (
                 <button className="msg-copy-btn" onClick={() => copyMessage(msg.content, i)}>
                   {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
                 </button>
+              )}
+              {msg.role === 'user' && editingIndex === null && !streaming && (
+                <button className="msg-edit-btn" onClick={() => startEdit(i)}>[EDIT]</button>
               )}
             </div>
           ))}
