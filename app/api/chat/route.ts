@@ -73,7 +73,9 @@ async function anthropicWebSearch(
         .join('');
       const stream = new ReadableStream({
         start(controller) {
-          if (text) controller.enqueue(new TextEncoder().encode(text));
+          const enc = new TextEncoder();
+          controller.enqueue(enc.encode('\0')); // signal: search done, generating
+          if (text) controller.enqueue(enc.encode(text));
           controller.close();
         },
       });
@@ -203,6 +205,11 @@ export async function POST(req: NextRequest) {
               if (line.startsWith('event: '))      { curEvent = line.slice(7).trim(); continue; }
               if (line === '')                      { curEvent = ''; continue; }
               if (!line.startsWith('data: '))      continue;
+              // Signal client that search is done and text generation is starting
+              if (curEvent === 'response.web_search_call.completed') {
+                controller.enqueue(encoder.encode('\0'));
+                continue;
+              }
               if (curEvent !== 'response.output_text.delta') continue;
               try {
                 const parsed = JSON.parse(line.slice(6));

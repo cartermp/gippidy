@@ -75,6 +75,8 @@ export default function Home() {
   const [editingContent, setEditingContent]     = useState('');
   const [savedFlash, setSavedFlash]             = useState(false);
   const [webSearch, setWebSearch]               = useState(false);
+  const [webSearchPhase, setWebSearchPhase]     = useState<'off' | 'searching' | 'generating'>('off');
+  const webSearchPhaseRef = useRef<'off' | 'searching' | 'generating'>('off');
   const [saveHistory, setSaveHistory]           = useState(false);
   const [showHistory, setShowHistory]           = useState(false);
   const [historyItems, setHistoryItems]         = useState<HistoryItem[]>([]);
@@ -291,6 +293,9 @@ export default function Home() {
     receivedRef.current   = '';
     displayPosRef.current = 0;
     streamDoneRef.current = false;
+    const phase = useWebSearch ? 'searching' : 'off';
+    webSearchPhaseRef.current = phase;
+    setWebSearchPhase(phase);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -301,6 +306,8 @@ export default function Home() {
       setStreamingContent('');
       setStreaming(false);
       textareaRef.current?.focus();
+      webSearchPhaseRef.current = 'off';
+      setWebSearchPhase('off');
       if (saveHistory) {
         (async () => {
           try {
@@ -374,7 +381,12 @@ export default function Home() {
         const { done, value } = await reader.read();
         if (done) break;
         if (!didConnect) { didConnect = true; setConnected(true); }
-        receivedRef.current += decoder.decode(value, { stream: true });
+        const raw = decoder.decode(value, { stream: true });
+        if (raw.includes('\0') && webSearchPhaseRef.current === 'searching') {
+          webSearchPhaseRef.current = 'generating';
+          setWebSearchPhase('generating');
+        }
+        receivedRef.current += raw.replace(/\0/g, '');
       }
 
       streamDoneRef.current = true;
@@ -384,6 +396,8 @@ export default function Home() {
       const partial = receivedRef.current;
       setStreamingContent('');
       setStreaming(false);
+      setWebSearchPhase('off');
+      webSearchPhaseRef.current = 'off';
       textareaRef.current?.focus();
       if ((err as Error).name === 'AbortError') {
         if (partial) finalize(partial); // preserve whatever arrived before STOP
@@ -647,9 +661,13 @@ export default function Home() {
               {streamingContent
                 ? <div className="content" dangerouslySetInnerHTML={{ __html: renderMarkdown(streamingContent) }} />
                 : <span className="content thinking">
-                    {connected
-                      ? <>thinking<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
-                      : <span className="waiting-cursor">▋</span>
+                    {!connected
+                      ? <span className="waiting-cursor">▋</span>
+                      : webSearchPhase === 'searching'
+                        ? <>searching the web<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
+                        : webSearchPhase === 'generating'
+                          ? <>generating<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
+                          : <>thinking<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
                     }
                   </span>
               }
