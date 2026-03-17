@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const { messages, model, systemPrompt } = body;
-  const id = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+  const id = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 
   await query(
     'INSERT INTO shared_chats (id, created_by, model, system_prompt, messages) VALUES ($1, $2, $3, $4, $5)',
