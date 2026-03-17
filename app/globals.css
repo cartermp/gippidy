@@ -541,6 +541,11 @@ header select option {
   cursor: default;
 }
 
+.input-row button.btn-active {
+  background: var(--green);
+  color: var(--bg);
+}
+
 /* ── images in messages ── */
 .message-images {
   display: flex;

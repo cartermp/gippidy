@@ -74,6 +74,7 @@ export default function Home() {
   const [editingIndex, setEditingIndex]         = useState<number | null>(null);
   const [editingContent, setEditingContent]     = useState('');
   const [savedFlash, setSavedFlash]             = useState(false);
+  const [webSearch, setWebSearch]               = useState(false);
   const [saveHistory, setSaveHistory]           = useState(false);
   const [showHistory, setShowHistory]           = useState(false);
   const [historyItems, setHistoryItems]         = useState<HistoryItem[]>([]);
@@ -278,7 +279,7 @@ export default function Home() {
     readTextFiles(texts, f   => setPendingFiles(fs => [...fs, f]));
   };
 
-  const doStream = async (msgs: Message[]) => {
+  const doStream = async (msgs: Message[], useWebSearch = false) => {
     const SMOOTH_RATE = 3;
 
     pinnedRef.current = true;
@@ -351,7 +352,7 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: msgs.map(({ html: _, ...m }) => m), model, systemPrompt }),
+        body: JSON.stringify({ messages: msgs.map(({ html: _, ...m }) => m), model, systemPrompt, webSearch: useWebSearch }),
         signal: controller.signal,
       });
 
@@ -420,12 +421,14 @@ export default function Home() {
       content: fullContent,
       ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
     };
+    const currentWebSearch = webSearch;
     setInput('');
     setPendingImages([]);
     setPendingFiles([]);
+    setWebSearch(false);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    await doStream([...messages, userMessage]);
+    await doStream([...messages, userMessage], currentWebSearch);
   };
 
   const handleRetry = () => doStream(messages.slice(0, -1));
@@ -701,6 +704,7 @@ export default function Home() {
             onChange={handleFileSelect}
             style={{ display: 'none' }}
           />
+          <button type="button" className={webSearch ? 'btn-active' : ''} onClick={() => setWebSearch(s => !s)} disabled={streaming}>[WEB]</button>
           <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[ATTACH]</button>
           <button
             type="submit"
