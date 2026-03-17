@@ -177,13 +177,39 @@ header select option {
 }
 
 /* ── messages ── */
-.messages {
+.messages-wrapper {
   flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+.messages {
+  height: 100%;
   overflow-y: auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.scroll-btn {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111;
+  color: var(--green);
+  border: 1px solid var(--green);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scroll-btn:hover {
+  background: var(--green);
+  color: var(--bg);
 }
 
 .messages::-webkit-scrollbar { width: 6px; }
@@ -199,6 +225,24 @@ header select option {
   gap: 12px;
   align-items: flex-start;
 }
+
+.msg-copy-btn {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--dim);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.message:hover .msg-copy-btn { opacity: 1; }
+.msg-copy-btn:hover { color: var(--green); border-color: var(--border); }
 
 .role {
   flex-shrink: 0;
@@ -256,11 +300,43 @@ header select option {
   gap: 8px;
 }
 
-.pending-images {
+.pending-attachments {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: flex-end;
 }
+
+.pending-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #111;
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--dim);
+  max-width: 180px;
+}
+
+.pending-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-file button {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+
+.pending-file button:hover { color: var(--fg); }
 
 .pending-image {
   position: relative;

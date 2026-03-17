@@ -5,8 +5,9 @@ import { signOut } from 'next-auth/react';
 import { renderMarkdown } from '@/lib/markdown';
 
 type Role = 'user' | 'assistant';
-type Image = { data: string; mimeType: string }; // base64, no prefix
-type Message = { role: Role; content: string; html?: string; images?: Image[] };
+type Image       = { data: string; mimeType: string };        // base64, no prefix
+type PendingFile = { name: string; content: string };         // text/code files
+type Message     = { role: Role; content: string; html?: string; images?: Image[] };
 
 const MODELS = [
   { id: 'gpt-5.4',                label: 'GPT-5.4',           provider: 'openai' },
@@ -44,6 +45,14 @@ function readImageFiles(files: File[], onEach: (img: Image) => void) {
   });
 }
 
+function readTextFiles(files: File[], onEach: (f: PendingFile) => void) {
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = () => onEach({ name: file.name, content: reader.result as string });
+    reader.readAsText(file);
+  });
+}
+
 export default function Home() {
   const [messages, setMessages]                 = useState<Message[]>([]);
   const [input, setInput]                       = useState('');
@@ -54,16 +63,19 @@ export default function Home() {
   const [connected, setConnected]               = useState(false);
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
+  const [pendingFiles, setPendingFiles]         = useState<PendingFile[]>([]);
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
+  const [showScrollBtn, setShowScrollBtn]       = useState(false);
+  const [copiedMsgIndex, setCopiedMsgIndex]     = useState<number | null>(null);
   const messagesRef        = useRef<HTMLDivElement>(null);
   const textareaRef        = useRef<HTMLTextAreaElement>(null);
   const fileRef            = useRef<HTMLInputElement>(null);
   const pinnedRef          = useRef(true);
   const lastScrollTop      = useRef(0);
   const saveSettingsTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const receivedRef        = useRef('');   // full text received from API
-  const displayPosRef      = useRef(0);    // chars revealed so far by the display ticker
-  const streamDoneRef      = useRef(false); // true once all bytes have arrived
+  const receivedRef        = useRef('');
+  const displayPosRef      = useRef(0);
+  const streamDoneRef      = useRef(false);
   const rafRef             = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputHistoryRef    = useRef<string[]>([]);
@@ -96,8 +108,10 @@ export default function Home() {
     const onScroll = () => {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       if (atBottom) {
+        if (!pinnedRef.current) setShowScrollBtn(false);
         pinnedRef.current = true;
       } else if (el.scrollTop < lastScrollTop.current) {
+        if (pinnedRef.current) setShowScrollBtn(true);
         pinnedRef.current = false;
       }
       lastScrollTop.current = el.scrollTop;
@@ -111,6 +125,12 @@ export default function Home() {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages, streamingContent]);
+
+  const scrollToBottom = () => {
+    pinnedRef.current = true;
+    setShowScrollBtn(false);
+    if (messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+  };
 
   const handleShare = async () => {
     setShareLabel('[SHARING…]');
@@ -164,25 +184,29 @@ export default function Home() {
     readImageFiles(imageFiles, img => setPendingImages(imgs => [...imgs, img]));
   };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    readImageFiles(Array.from(e.target.files ?? []), img => setPendingImages(imgs => [...imgs, img]));
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const all   = Array.from(e.target.files ?? []);
+    const imgs  = all.filter(f => f.type.startsWith('image/'));
+    const texts = all.filter(f => !f.type.startsWith('image/'));
+    readImageFiles(imgs,  img => setPendingImages(imgs => [...imgs, img]));
+    readTextFiles(texts, f   => setPendingFiles(fs => [...fs, f]));
     e.target.value = '';
   };
 
   const handleDrop = (e: React.DragEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-    readImageFiles(files, img => setPendingImages(imgs => [...imgs, img]));
+    const all   = Array.from(e.dataTransfer.files);
+    const imgs  = all.filter(f => f.type.startsWith('image/'));
+    const texts = all.filter(f => !f.type.startsWith('image/'));
+    readImageFiles(imgs,  img => setPendingImages(imgs => [...imgs, img]));
+    readTextFiles(texts, f   => setPendingFiles(fs => [...fs, f]));
   };
 
   const doStream = async (msgs: Message[]) => {
-    // How many characters to reveal per animation frame (~60fps).
-    // Bursts larger than this are spread across multiple frames → smooth display.
-    // When the stream ends, the ticker flushes remaining text at up to 8× this rate
-    // so the tail never lingers more than ~130ms regardless of buffer size.
     const SMOOTH_RATE = 3;
 
     pinnedRef.current = true;
+    setShowScrollBtn(false);
     setMessages(msgs);
     setStreaming(true);
     setStreamingContent('');
@@ -194,7 +218,6 @@ export default function Home() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // Finalize: called by the ticker once display has caught up after the stream ends.
     const finalize = (text: string) => {
       setMessages(m => [...m, { role: 'assistant', content: text, html: renderMarkdown(text) }]);
       setStreamingContent('');
@@ -202,14 +225,12 @@ export default function Home() {
       textareaRef.current?.focus();
     };
 
-    // Display ticker: runs independently of data arrival, revealing text at a steady rate.
     const doTick = () => {
       const received = receivedRef.current;
       const isDone   = streamDoneRef.current;
       const pos      = displayPosRef.current;
 
       if (pos < received.length) {
-        // Normal: reveal SMOOTH_RATE chars. Done: flush faster so tail clears in ~8 frames.
         const rate   = isDone ? Math.max(SMOOTH_RATE, Math.ceil((received.length - pos) / 8)) : SMOOTH_RATE;
         const newPos = Math.min(pos + rate, received.length);
         displayPosRef.current = newPos;
@@ -225,7 +246,6 @@ export default function Home() {
     };
     rafRef.current = requestAnimationFrame(doTick);
 
-    // Abort / cleanup helper used in error paths.
     const cancelTicker = () => {
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     };
@@ -259,7 +279,6 @@ export default function Home() {
         receivedRef.current += decoder.decode(value, { stream: true });
       }
 
-      // Signal the ticker that all bytes have arrived; it will finalize when caught up.
       streamDoneRef.current = true;
 
     } catch (err) {
@@ -274,10 +293,8 @@ export default function Home() {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if ((!input.trim() && pendingImages.length === 0) || streaming) return;
+    if ((!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) || streaming) return;
 
-    // Focus synchronously here — iOS only honours programmatic focus
-    // when called within the originating user gesture handler.
     textareaRef.current?.focus();
 
     const trimmed = input.trim();
@@ -286,13 +303,20 @@ export default function Home() {
       historyIndexRef.current = -1;
     }
 
+    // Attach file contents as XML-tagged blocks after the user's text
+    const fileAttachments = pendingFiles
+      .map(f => `<file name="${f.name}">\n${f.content}\n</file>`)
+      .join('\n\n');
+    const fullContent = [trimmed, fileAttachments].filter(Boolean).join('\n\n');
+
     const userMessage: Message = {
       role: 'user',
-      content: trimmed,
+      content: fullContent,
       ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
     };
     setInput('');
     setPendingImages([]);
+    setPendingFiles([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     await doStream([...messages, userMessage]);
@@ -326,6 +350,12 @@ export default function Home() {
         ? draftInputRef.current
         : inputHistoryRef.current[historyIndexRef.current]);
     }
+  };
+
+  const copyMessage = (content: string, index: number) => {
+    navigator.clipboard.writeText(content);
+    setCopiedMsgIndex(index);
+    setTimeout(() => setCopiedMsgIndex(prev => prev === index ? null : prev), 2000);
   };
 
   const lastIsAssistant = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
@@ -375,41 +405,51 @@ export default function Home() {
         </div>
       )}
 
-      <div className="messages" ref={messagesRef}>
-        {messages.length === 0 && !streaming && (
-          <div className="empty">&gt; ready. select a model and start typing.</div>
-        )}
-        {messages.map((msg, i) => (
-          <div key={i} className={`message ${msg.role}`}>
-            <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
-            <div className="content">
-              {msg.images && msg.images.length > 0 && (
-                <div className="message-images">
-                  {msg.images.map((img, j) => (
-                    <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
-                  ))}
-                </div>
+      <div className="messages-wrapper">
+        <div className="messages" ref={messagesRef}>
+          {messages.length === 0 && !streaming && (
+            <div className="empty">&gt; ready. select a model and start typing.</div>
+          )}
+          {messages.map((msg, i) => (
+            <div key={i} className={`message ${msg.role}`}>
+              <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
+              <div className="content">
+                {msg.images && msg.images.length > 0 && (
+                  <div className="message-images">
+                    {msg.images.map((img, j) => (
+                      <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
+                    ))}
+                  </div>
+                )}
+                {msg.role === 'assistant'
+                  ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
+                  : msg.content && <span>{msg.content}</span>
+                }
+              </div>
+              {msg.role === 'assistant' && (
+                <button className="msg-copy-btn" onClick={() => copyMessage(msg.content, i)}>
+                  {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
+                </button>
               )}
-              {msg.role === 'assistant'
-                ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
-                : msg.content && <span>{msg.content}</span>
+            </div>
+          ))}
+          {streaming && (
+            <div className="message assistant">
+              <span className="role">#</span>
+              {streamingContent
+                ? <div className="content" dangerouslySetInnerHTML={{ __html: renderMarkdown(streamingContent) }} />
+                : <span className="content thinking">
+                    {connected
+                      ? <>thinking<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
+                      : <span className="waiting-cursor">▋</span>
+                    }
+                  </span>
               }
             </div>
-          </div>
-        ))}
-        {streaming && (
-          <div className="message assistant">
-            <span className="role">#</span>
-            {streamingContent
-              ? <div className="content" dangerouslySetInnerHTML={{ __html: renderMarkdown(streamingContent) }} />
-              : <span className="content thinking">
-                  {connected
-                    ? <>thinking<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
-                    : <span className="waiting-cursor">▋</span>
-                  }
-                </span>
-            }
-          </div>
+          )}
+        </div>
+        {showScrollBtn && (
+          <button className="scroll-btn" onClick={scrollToBottom}>↓ latest</button>
         )}
       </div>
 
@@ -419,12 +459,18 @@ export default function Home() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
       >
-        {pendingImages.length > 0 && (
-          <div className="pending-images">
+        {(pendingImages.length > 0 || pendingFiles.length > 0) && (
+          <div className="pending-attachments">
             {pendingImages.map((img, i) => (
-              <div key={i} className="pending-image">
+              <div key={`img-${i}`} className="pending-image">
                 <img src={`data:${img.mimeType};base64,${img.data}`} alt="" />
                 <button type="button" onClick={() => setPendingImages(imgs => imgs.filter((_, j) => j !== i))}>×</button>
+              </div>
+            ))}
+            {pendingFiles.map((f, i) => (
+              <div key={`file-${i}`} className="pending-file">
+                <span>{f.name}</span>
+                <button type="button" onClick={() => setPendingFiles(fs => fs.filter((_, j) => j !== i))}>×</button>
               </div>
             ))}
           </div>
@@ -440,11 +486,18 @@ export default function Home() {
             placeholder="type a message… (enter to send, shift+enter for newline)"
             rows={1}
           />
-          <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleImageSelect} style={{ display: 'none' }} />
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[IMG]</button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,text/*,.json,.yaml,.yml,.toml,.md,.csv,.py,.js,.ts,.jsx,.tsx,.rs,.go,.rb,.java,.c,.cpp,.h,.cs,.swift,.sh,.sql"
+            multiple
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[ATTACH]</button>
           <button
             type="submit"
-            disabled={streaming || (!input.trim() && pendingImages.length === 0)}
+            disabled={streaming || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)}
             onPointerDown={(e) => e.preventDefault()}
           >
             {streaming ? '[…]' : '[SEND]'}
