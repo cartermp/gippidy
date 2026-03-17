@@ -6,21 +6,26 @@ export async function GET() {
   if (!session?.user?.email) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const result = await query(
-    'SELECT system_prompt FROM user_settings WHERE email = $1',
+    'SELECT system_prompt, save_history FROM user_settings WHERE email = $1',
     [session.user.email],
   );
-  return Response.json({ systemPrompt: result.rows[0]?.system_prompt ?? '' });
+  return Response.json({
+    systemPrompt: result.rows[0]?.system_prompt ?? '',
+    saveHistory:  result.rows[0]?.save_history  ?? false,
+  });
 }
 
 export async function PUT(req: Request) {
   const session = await auth();
   if (!session?.user?.email) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { systemPrompt } = await req.json();
+  const { systemPrompt, saveHistory } = await req.json();
   await query(
-    `INSERT INTO user_settings (email, system_prompt) VALUES ($1, $2)
-     ON CONFLICT (email) DO UPDATE SET system_prompt = EXCLUDED.system_prompt`,
-    [session.user.email, systemPrompt ?? ''],
+    `INSERT INTO user_settings (email, system_prompt, save_history) VALUES ($1, $2, $3)
+     ON CONFLICT (email) DO UPDATE SET
+       system_prompt = EXCLUDED.system_prompt,
+       save_history  = EXCLUDED.save_history`,
+    [session.user.email, systemPrompt ?? '', saveHistory ?? false],
   );
   return new Response(null, { status: 204 });
 }

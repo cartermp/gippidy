@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { signOut } from 'next-auth/react';
 import { renderMarkdown } from '@/lib/markdown';
+import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
 
 type Role = 'user' | 'assistant';
 type Image       = { data: string; mimeType: string };        // base64, no prefix
@@ -17,7 +18,10 @@ const MODELS = [
   { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash',    provider: 'google' },
 ];
 
-const MODEL_KEY = 'gippidy-model';
+const MODEL_KEY    = 'gippidy-model';
+const KEY_WARNED   = 'gippidy-key-warned';
+
+type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
 
 function parseStreamError(status: number, body: string): string {
   if (status === 429) return '[RATE LIMITED] Wait a moment and try again.';
@@ -67,6 +71,12 @@ export default function Home() {
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
   const [showScrollBtn, setShowScrollBtn]       = useState(false);
   const [copiedMsgIndex, setCopiedMsgIndex]     = useState<number | null>(null);
+  const [saveHistory, setSaveHistory]           = useState(false);
+  const [showHistory, setShowHistory]           = useState(false);
+  const [historyItems, setHistoryItems]         = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading]     = useState(false);
+  const chatIdRef    = useRef<string | null>(null);
+  const cryptoKeyRef = useRef<CryptoKey | null>(null);
   const messagesRef        = useRef<HTMLDivElement>(null);
   const textareaRef        = useRef<HTMLTextAreaElement>(null);
   const fileRef            = useRef<HTMLInputElement>(null);
@@ -88,7 +98,10 @@ export default function Home() {
 
     fetch('/api/settings')
       .then(r => r.json())
-      .then(({ systemPrompt }) => { if (systemPrompt) setSystemPrompt(systemPrompt); })
+      .then(({ systemPrompt, saveHistory: sh }) => {
+        if (systemPrompt) setSystemPrompt(systemPrompt);
+        if (sh) setSaveHistory(true);
+      })
       .catch(() => {});
 
     const fork = localStorage.getItem('gippidy-fork');
@@ -161,9 +174,61 @@ export default function Home() {
       fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt: s }),
+        body: JSON.stringify({ systemPrompt: s, saveHistory }),
       });
     }, 600);
+  };
+
+  const handleToggleSaveHistory = (val: boolean) => {
+    setSaveHistory(val);
+    if (val && !localStorage.getItem(KEY_WARNED)) {
+      alert('Your encryption key is stored in this browser only.\nClearing browser data will make saved chats permanently unreadable.');
+      localStorage.setItem(KEY_WARNED, '1');
+    }
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ systemPrompt, saveHistory: val }),
+    });
+  };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      if (!cryptoKeyRef.current) cryptoKeyRef.current = await getOrCreateKey();
+      const key  = cryptoKeyRef.current;
+      const rows = await fetch('/api/history').then(r => r.json()) as { id: string; iv: string; ciphertext: string; updated_at: string }[];
+      const items = await Promise.all(rows.map(async row => {
+        const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
+        return { id: row.id, updatedAt: row.updated_at, ...data };
+      }));
+      setHistoryItems(items);
+    } catch {
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleOpenHistory = async () => {
+    if (showHistory) { setShowHistory(false); return; }
+    setShowHistory(true);
+    await loadHistory();
+  };
+
+  const handleLoadChat = (item: HistoryItem) => {
+    setMessages(item.messages);
+    setModel(item.model);
+    localStorage.setItem(MODEL_KEY, item.model);
+    if (item.systemPrompt) setSystemPrompt(item.systemPrompt);
+    chatIdRef.current = item.id;
+    setShowHistory(false);
+  };
+
+  const handleDeleteChat = async (id: string) => {
+    await fetch(`/api/history/${id}`, { method: 'DELETE' });
+    setHistoryItems(items => items.filter(i => i.id !== id));
+    if (chatIdRef.current === id) chatIdRef.current = null;
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -219,10 +284,29 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     const finalize = (text: string) => {
-      setMessages(m => [...m, { role: 'assistant', content: text, html: renderMarkdown(text) }]);
+      const finalMsgs: Message[] = [...msgs, { role: 'assistant', content: text, html: renderMarkdown(text) }];
+      setMessages(finalMsgs);
       setStreamingContent('');
       setStreaming(false);
       textareaRef.current?.focus();
+      if (saveHistory) {
+        (async () => {
+          try {
+            if (!cryptoKeyRef.current) cryptoKeyRef.current = await getOrCreateKey();
+            const key   = cryptoKeyRef.current;
+            const title = finalMsgs.find(m => m.role === 'user')?.content.slice(0, 60) ?? 'Untitled';
+            const toSave = finalMsgs.map(({ html: _, ...m }) => m);
+            const { iv, ciphertext } = await encrypt(key, { messages: toSave, model, systemPrompt, title });
+            const res = await fetch('/api/history', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: chatIdRef.current, iv, ciphertext }),
+            });
+            const { id } = await res.json();
+            chatIdRef.current = id;
+          } catch { /* non-critical */ }
+        })();
+      }
     };
 
     const doTick = () => {
@@ -368,6 +452,9 @@ export default function Home() {
         <div className="header-spacer" />
         <div className="header-actions">
           <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
+          {saveHistory && (
+            <button onClick={handleOpenHistory}>{showHistory ? '[CHAT]' : '[HISTORY]'}</button>
+          )}
           {streaming && (
             <button onClick={() => abortControllerRef.current?.abort()}>[STOP]</button>
           )}
@@ -378,7 +465,7 @@ export default function Home() {
             <button onClick={handleRetry}>[RETRY]</button>
           )}
           {messages.length > 0 && (
-            <button onClick={() => setMessages([])}>[CLEAR]</button>
+            <button onClick={() => { setMessages([]); chatIdRef.current = null; }}>[CLEAR]</button>
           )}
           <button onClick={() => signOut({ callbackUrl: '/login' })}>[SIGN OUT]</button>
         </div>
@@ -402,11 +489,38 @@ export default function Home() {
               placeholder="Optional system instructions..."
             />
           </div>
+          <div className="settings-row">
+            <label>Save History</label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={saveHistory} onChange={e => handleToggleSaveHistory(e.target.checked)} />
+              <span style={{ fontSize: 12, color: 'var(--dim)' }}>{saveHistory ? 'on — encrypted in this browser' : 'off'}</span>
+            </label>
+          </div>
         </div>
       )}
 
       <div className="messages-wrapper">
-        <div className="messages" ref={messagesRef}>
+        <div className="messages" ref={showHistory ? undefined : messagesRef}>
+          {showHistory ? (
+            <>
+              {historyLoading && <div className="empty">decrypting…</div>}
+              {!historyLoading && historyItems.length === 0 && (
+                <div className="empty">no saved chats yet</div>
+              )}
+              {historyItems.map(item => (
+                <div key={item.id} className="history-item" onClick={() => handleLoadChat(item)}>
+                  <span className="history-date">{item.updatedAt.slice(0, 10)}</span>
+                  <span className="history-title">{item.title}</span>
+                  <button
+                    type="button"
+                    className="history-delete"
+                    onClick={e => { e.stopPropagation(); handleDeleteChat(item.id); }}
+                  >×</button>
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
           {messages.length === 0 && !streaming && (
             <div className="empty">&gt; ready. select a model and start typing.</div>
           )}
@@ -447,8 +561,10 @@ export default function Home() {
               }
             </div>
           )}
+            </>
+          )}
         </div>
-        {showScrollBtn && (
+        {!showHistory && showScrollBtn && (
           <button className="scroll-btn" onClick={scrollToBottom}>↓ latest</button>
         )}
       </div>

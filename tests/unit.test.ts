@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents } from '../lib/chat.ts';
 import { renderMarkdown } from '../lib/markdown.ts';
+import { encrypt, decrypt } from '../lib/crypto.ts';
 
 // Inline copy of parseStreamError for unit testing (it lives in a client component)
 function parseStreamError(status: number, body: string): string {
@@ -156,4 +157,48 @@ test('parseStreamError: 500 → server error message', () => {
 
 test('parseStreamError: unknown error includes status code', () => {
   assert.ok(parseStreamError(400, 'bad request').includes('400'));
+});
+
+// ── crypto ────────────────────────────────────────────────────────────────────
+
+async function makeKey(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+
+test('encrypt/decrypt: round-trips arbitrary data', async () => {
+  const key  = await makeKey();
+  const data = { messages: [{ role: 'user', content: 'hello' }], title: 'test chat' };
+  const { iv, ciphertext } = await encrypt(key, data);
+  const out  = await decrypt<typeof data>(key, iv, ciphertext);
+  assert.deepEqual(out, data);
+});
+
+test('encrypt: produces different ciphertext on each call (random IV)', async () => {
+  const key = await makeKey();
+  const { iv: iv1, ciphertext: ct1 } = await encrypt(key, { x: 1 });
+  const { iv: iv2, ciphertext: ct2 } = await encrypt(key, { x: 1 });
+  assert.notEqual(iv1, iv2);
+  assert.notEqual(ct1, ct2);
+});
+
+test('decrypt: rejects with wrong key', async () => {
+  const key1 = await makeKey();
+  const key2 = await makeKey();
+  const { iv, ciphertext } = await encrypt(key1, { secret: 'data' });
+  await assert.rejects(() => decrypt(key2, iv, ciphertext));
+});
+
+test('decrypt: rejects with tampered ciphertext', async () => {
+  const key = await makeKey();
+  const { iv, ciphertext } = await encrypt(key, { x: 1 });
+  const tampered = ciphertext.slice(0, -4) + 'AAAA';
+  await assert.rejects(() => decrypt(key, iv, tampered));
+});
+
+test('encrypt/decrypt: handles unicode and nested objects', async () => {
+  const key  = await makeKey();
+  const data = { title: '日本語テスト 🎉', nested: { a: [1, 2, 3] } };
+  const { iv, ciphertext } = await encrypt(key, data);
+  const out  = await decrypt<typeof data>(key, iv, ciphertext);
+  assert.deepEqual(out, data);
 });
