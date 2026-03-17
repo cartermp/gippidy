@@ -78,6 +78,7 @@ export default function Home() {
   const [showHistory, setShowHistory]           = useState(false);
   const [historyItems, setHistoryItems]         = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading]     = useState(false);
+  const [historySearch, setHistorySearch]       = useState('');
   const chatIdRef    = useRef<string | null>(null);
   const cryptoKeyRef = useRef<CryptoKey | null>(null);
   const messagesRef        = useRef<HTMLDivElement>(null);
@@ -221,7 +222,7 @@ export default function Home() {
   };
 
   const handleOpenHistory = async () => {
-    if (showHistory) { setShowHistory(false); return; }
+    if (showHistory) { setShowHistory(false); setHistorySearch(''); return; }
     setShowHistory(true);
     await loadHistory();
   };
@@ -556,21 +557,41 @@ export default function Home() {
         <div className="messages" ref={showHistory ? undefined : messagesRef}>
           {showHistory ? (
             <>
+              {!historyLoading && historyItems.length > 0 && (
+                <div className="history-search">
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="search…"
+                    value={historySearch}
+                    onChange={e => setHistorySearch(e.target.value)}
+                  />
+                </div>
+              )}
               {historyLoading && <div className="empty">decrypting…</div>}
               {!historyLoading && historyItems.length === 0 && (
                 <div className="empty">no saved chats yet</div>
               )}
-              {historyItems.map(item => (
-                <div key={item.id} className="history-item" onClick={() => handleLoadChat(item)}>
-                  <span className="history-date">{item.updatedAt.slice(0, 10)}</span>
-                  <span className="history-title">{item.title}</span>
-                  <button
-                    type="button"
-                    className="history-delete"
-                    onClick={e => { e.stopPropagation(); handleDeleteChat(item.id); }}
-                  >×</button>
-                </div>
-              ))}
+              {(() => {
+                const q = historySearch.trim().toLowerCase();
+                const filtered = q
+                  ? historyItems.filter(i => i.title.toLowerCase().includes(q))
+                  : historyItems;
+                if (!historyLoading && q && filtered.length === 0) {
+                  return <div className="empty">no matches</div>;
+                }
+                return filtered.map(item => (
+                  <div key={item.id} className="history-item" onClick={() => handleLoadChat(item)}>
+                    <span className="history-date">{item.updatedAt.slice(0, 10)}</span>
+                    <span className="history-title">{item.title}</span>
+                    <button
+                      type="button"
+                      className="history-delete"
+                      onClick={e => { e.stopPropagation(); handleDeleteChat(item.id); }}
+                    >×</button>
+                  </div>
+                ));
+              })()}
             </>
           ) : (
             <>

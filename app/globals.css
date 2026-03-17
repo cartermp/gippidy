@@ -177,6 +177,27 @@ header select option {
 }
 
 /* ── history list (rendered inside .messages) ── */
+.history-search {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-search input {
+  width: 100%;
+  background: transparent;
+  color: var(--fg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 0;
+  outline: none;
+}
+
+.history-search input:focus {
+  border-bottom-color: var(--green);
+}
+
 .history-item {
   display: flex;
   align-items: center;
