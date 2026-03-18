@@ -722,8 +722,10 @@ export default function Home() {
             onChange={handleFileSelect}
             style={{ display: 'none' }}
           />
-          <button type="button" className={webSearch ? 'btn-active' : ''} onClick={() => setWebSearch(s => !s)} disabled={streaming}>[WEB]</button>
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[ATTACH]</button>
+          <div className="input-tools">
+            <button type="button" className={webSearch ? 'btn-active' : ''} onClick={() => setWebSearch(s => !s)} disabled={streaming}>[WEB]</button>
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[ATTACH]</button>
+          </div>
           <button
             type="submit"
             disabled={streaming || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)}

@@ -546,6 +546,27 @@ header select option {
   color: var(--bg);
 }
 
+/* On desktop: tools flow inline with the rest of the input row */
+.input-tools {
+  display: contents;
+}
+
+/* On mobile: tools break out into their own row above the textarea */
+@media (pointer: coarse) {
+  .input-row {
+    flex-wrap: wrap;
+  }
+  .input-tools {
+    display: flex;
+    gap: 8px;
+    order: -1;
+    width: 100%;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+  }
+}
+
 /* ── images in messages ── */
 .message-images {
   display: flex;
