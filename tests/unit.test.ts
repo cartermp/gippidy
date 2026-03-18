@@ -202,3 +202,69 @@ test('encrypt/decrypt: handles unicode and nested objects', async () => {
   const out  = await decrypt<typeof data>(key, iv, ciphertext);
   assert.deepEqual(out, data);
 });
+
+// Regression: btoa(String.fromCharCode(...large array)) throws "Maximum call stack
+// size exceeded" for payloads above ~65 KB. encrypt() must use a loop, not spread.
+test('encrypt/decrypt: large payload (>65 KB) round-trips without stack overflow', async () => {
+  const key = await makeKey();
+  // A realistic multi-turn chat: 50 messages, each ~1.5 KB of text ≈ 75 KB plaintext
+  const longMessage = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(25);
+  const messages = Array.from({ length: 50 }, (_, i) => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `Message ${i}: ${longMessage}`,
+  }));
+  const data = { messages, model: 'gpt-4o', systemPrompt: '', title: 'Long chat' };
+  const { iv, ciphertext } = await encrypt(key, data);
+  const out = await decrypt<typeof data>(key, iv, ciphertext);
+  assert.equal(out.messages.length, 50);
+  assert.equal(out.messages[0].content, data.messages[0].content);
+});
+
+// Regression: ensure the shape saved by finalize() can be decoded by loadHistory().
+// If these keys diverge, history silently shows nothing.
+test('encrypt/decrypt: history payload shape is stable', async () => {
+  const key = await makeKey();
+  // Mirrors exactly what finalize() encrypts and loadHistory() decrypts
+  const payload = {
+    messages: [
+      { role: 'user',      content: 'hello' },
+      { role: 'assistant', content: 'hi there' },
+    ],
+    model:        'claude-sonnet-4-6',
+    systemPrompt: 'be helpful',
+    title:        'hello',
+  };
+  const { iv, ciphertext } = await encrypt(key, payload);
+  const out = await decrypt<typeof payload>(key, iv, ciphertext);
+  assert.equal(out.title, payload.title);
+  assert.equal(out.model, payload.model);
+  assert.equal(out.systemPrompt, payload.systemPrompt);
+  assert.equal(out.messages.length, 2);
+  assert.equal(out.messages[1].content, 'hi there');
+});
+
+// Regression: a single bad row must not wipe the entire history list.
+// Promise.allSettled must be used, not Promise.all.
+test('decrypt: one bad row does not prevent other rows from loading', async () => {
+  const key = await makeKey();
+  const good = [
+    { id: '1', ...(await encrypt(key, { messages: [{ role: 'user', content: 'a' }], model: 'm', systemPrompt: '', title: 'a' })), updated_at: '2026-01-01' },
+    { id: '2', ...(await encrypt(key, { messages: [{ role: 'user', content: 'b' }], model: 'm', systemPrompt: '', title: 'b' })), updated_at: '2026-01-02' },
+  ];
+  const corrupt = { id: '3', iv: 'AAAA', ciphertext: 'AAAA', updated_at: '2026-01-03' };
+  const rows = [good[0], corrupt, good[1]];
+
+  const wrongKey = await makeKey();
+  const results = await Promise.allSettled(rows.map(row =>
+    decrypt<{ messages: unknown[]; model: string; systemPrompt: string; title: string }>(
+      // use wrong key for corrupt row to simulate key mismatch / bad data
+      row.id === '3' ? wrongKey : key,
+      row.iv,
+      row.ciphertext,
+    )
+  ));
+  const items = results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
+  assert.equal(items.length, 2, 'good rows should still load despite one bad row');
+  assert.equal(items[0].title, 'a');
+  assert.equal(items[1].title, 'b');
+});
