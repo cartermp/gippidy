@@ -1,15 +1,28 @@
 const KEY_STORE = 'gippidy-key';
 const ALG = { name: 'AES-GCM', length: 256 } as const;
 
-export async function getOrCreateKey(): Promise<CryptoKey> {
-  const stored = localStorage.getItem(KEY_STORE);
-  if (stored) {
-    return crypto.subtle.importKey('jwk', JSON.parse(stored), ALG, true, ['encrypt', 'decrypt']);
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+let keyPromise: Promise<CryptoKey> | null = null;
+
+export function getOrCreateKey(): Promise<CryptoKey> {
+  if (!keyPromise) {
+    keyPromise = (async () => {
+      const stored = localStorage.getItem(KEY_STORE);
+      if (stored) {
+        return crypto.subtle.importKey('jwk', JSON.parse(stored), ALG, true, ['encrypt', 'decrypt']);
+      }
+      const key = await crypto.subtle.generateKey(ALG, true, ['encrypt', 'decrypt']);
+      const jwk = await crypto.subtle.exportKey('jwk', key);
+      localStorage.setItem(KEY_STORE, JSON.stringify(jwk));
+      return key;
+    })();
   }
-  const key = await crypto.subtle.generateKey(ALG, true, ['encrypt', 'decrypt']);
-  const jwk = await crypto.subtle.exportKey('jwk', key);
-  localStorage.setItem(KEY_STORE, JSON.stringify(jwk));
-  return key;
+  return keyPromise;
 }
 
 export async function encrypt(key: CryptoKey, data: unknown): Promise<{ iv: string; ciphertext: string }> {
@@ -17,8 +30,8 @@ export async function encrypt(key: CryptoKey, data: unknown): Promise<{ iv: stri
   const encoded = new TextEncoder().encode(JSON.stringify(data));
   const buf     = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
   return {
-    iv:         btoa(String.fromCharCode(...iv)),
-    ciphertext: btoa(String.fromCharCode(...new Uint8Array(buf))),
+    iv:         uint8ToBase64(iv),
+    ciphertext: uint8ToBase64(new Uint8Array(buf)),
   };
 }
 
