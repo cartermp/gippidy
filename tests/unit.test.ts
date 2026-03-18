@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents } from '../lib/chat.ts';
 import { renderMarkdown } from '../lib/markdown.ts';
-import { encrypt, decrypt } from '../lib/crypto.ts';
+import { getOrCreateKey, encrypt, decrypt } from '../lib/crypto.ts';
 
 // Inline copy of parseStreamError for unit testing (it lives in a client component)
 function parseStreamError(status: number, body: string): string {
@@ -267,4 +267,48 @@ test('decrypt: one bad row does not prevent other rows from loading', async () =
   assert.equal(items.length, 2, 'good rows should still load despite one bad row');
   assert.equal(items[0].title, 'a');
   assert.equal(items[1].title, 'b');
+});
+
+// ── getOrCreateKey ────────────────────────────────────────────────────────────
+
+// Helper: export a CryptoKey to the JWK string format used by the server
+async function exportJwk(key: CryptoKey): Promise<string> {
+  return JSON.stringify(await crypto.subtle.exportKey('jwk', key));
+}
+
+test('getOrCreateKey: imports server-stored JWK and returns no new JWK to save', async () => {
+  const original = await makeKey();
+  const jwkStr   = await exportJwk(original);
+
+  const { key, jwk } = await getOrCreateKey(jwkStr);
+  assert.equal(jwk, null, 'should not return a new JWK when one already exists');
+  // The imported key must decrypt data encrypted with the original
+  const { iv, ciphertext } = await encrypt(original, { x: 42 });
+  const out = await decrypt<{ x: number }>(key, iv, ciphertext);
+  assert.equal(out.x, 42);
+});
+
+test('getOrCreateKey: generates a new key when server has none, returns JWK to save', async () => {
+  const { key, jwk } = await getOrCreateKey(null);
+  assert.ok(jwk !== null, 'should return a JWK string to persist when no key exists');
+  // Round-trip with the generated key
+  const { iv, ciphertext } = await encrypt(key, { hello: 'world' });
+  const out = await decrypt<{ hello: string }>(key, iv, ciphertext);
+  assert.equal(out.hello, 'world');
+});
+
+// Regression: all deployments sharing the same server JWK must produce the same key.
+// Before this fix, each deployment had its own localStorage key, so Railway could not
+// decrypt rows saved by Vercel and vice versa.
+test('getOrCreateKey: same server JWK produces same key across two calls (cross-deployment)', async () => {
+  const original = await makeKey();
+  const jwkStr   = await exportJwk(original);
+
+  const { key: key1 } = await getOrCreateKey(jwkStr);
+  const { key: key2 } = await getOrCreateKey(jwkStr);
+
+  // Encrypt with key1, decrypt with key2 — must succeed
+  const { iv, ciphertext } = await encrypt(key1, { deployment: 'railway' });
+  const out = await decrypt<{ deployment: string }>(key2, iv, ciphertext);
+  assert.equal(out.deployment, 'railway');
 });

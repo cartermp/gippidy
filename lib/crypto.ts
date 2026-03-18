@@ -1,4 +1,3 @@
-const KEY_STORE = 'gippidy-key';
 const ALG = { name: 'AES-GCM', length: 256 } as const;
 
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -7,22 +6,34 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-let keyPromise: Promise<CryptoKey> | null = null;
-
-export function getOrCreateKey(): Promise<CryptoKey> {
-  if (!keyPromise) {
-    keyPromise = (async () => {
-      const stored = localStorage.getItem(KEY_STORE);
-      if (stored) {
-        return crypto.subtle.importKey('jwk', JSON.parse(stored), ALG, true, ['encrypt', 'decrypt']);
-      }
-      const key = await crypto.subtle.generateKey(ALG, true, ['encrypt', 'decrypt']);
-      const jwk = await crypto.subtle.exportKey('jwk', key);
-      localStorage.setItem(KEY_STORE, JSON.stringify(jwk));
-      return key;
-    })();
+/**
+ * Load the encryption key from the server-stored JWK, or generate a new one.
+ * Returns { key, jwk } where jwk is non-null only when a new key was generated
+ * (the caller must save it to the server).
+ *
+ * If no server key exists, falls back to any localStorage key from the old
+ * per-browser scheme so existing rows can still be decrypted.
+ */
+export async function getOrCreateKey(
+  serverJwk: string | null,
+): Promise<{ key: CryptoKey; jwk: string | null }> {
+  // Server-stored key (shared across all deployments / devices)
+  if (serverJwk) {
+    const key = await crypto.subtle.importKey('jwk', JSON.parse(serverJwk), ALG, true, ['encrypt', 'decrypt']);
+    return { key, jwk: null };
   }
-  return keyPromise;
+
+  // Migration: if the old per-browser localStorage key exists, promote it to server
+  const localJwk = typeof localStorage !== 'undefined' ? localStorage.getItem('gippidy-key') : null;
+  if (localJwk) {
+    const key = await crypto.subtle.importKey('jwk', JSON.parse(localJwk), ALG, true, ['encrypt', 'decrypt']);
+    return { key, jwk: localJwk }; // caller saves this to server
+  }
+
+  // First use: generate a new key and return it for the caller to persist
+  const key = await crypto.subtle.generateKey(ALG, true, ['encrypt', 'decrypt']);
+  const jwk = JSON.stringify(await crypto.subtle.exportKey('jwk', key));
+  return { key, jwk };
 }
 
 export async function encrypt(key: CryptoKey, data: unknown): Promise<{ iv: string; ciphertext: string }> {

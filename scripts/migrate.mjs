@@ -24,6 +24,9 @@ await pool.query(`
 await pool.query(`
   ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS save_history BOOLEAN NOT NULL DEFAULT FALSE
 `);
+await pool.query(`
+  ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS key_jwk TEXT
+`);
 console.log('✓ user_settings table ready');
 
 await pool.query(`

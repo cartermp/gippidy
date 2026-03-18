@@ -105,9 +105,20 @@ export default function Home() {
 
     fetch('/api/settings')
       .then(r => r.json())
-      .then(({ systemPrompt, saveHistory: sh }) => {
+      .then(async ({ systemPrompt, saveHistory: sh, keyJwk }) => {
         if (systemPrompt) setSystemPrompt(systemPrompt);
         if (sh) setSaveHistory(true);
+        // Load or create the encryption key (shared across all deployments via DB)
+        const { key, jwk } = await getOrCreateKey(keyJwk ?? null);
+        cryptoKeyRef.current = key;
+        if (jwk) {
+          // New key (or migrated from localStorage) — save to server so all deployments use it
+          fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ systemPrompt: systemPrompt ?? '', saveHistory: sh ?? false, keyJwk: jwk }),
+          }).catch(() => {});
+        }
       })
       .catch(() => {});
 
@@ -209,8 +220,8 @@ export default function Home() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      if (!cryptoKeyRef.current) cryptoKeyRef.current = await getOrCreateKey();
-      const key  = cryptoKeyRef.current;
+      const key = cryptoKeyRef.current;
+      if (!key) { console.error('encryption key not ready'); setHistoryItems([]); return; }
       const res  = await fetch('/api/history');
       if (!res.ok) { console.error('history fetch failed', res.status, await res.text()); setHistoryItems([]); return; }
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
@@ -317,8 +328,8 @@ export default function Home() {
       if (saveHistory) {
         (async () => {
           try {
-            if (!cryptoKeyRef.current) cryptoKeyRef.current = await getOrCreateKey();
-            const key   = cryptoKeyRef.current;
+            const key = cryptoKeyRef.current;
+            if (!key) return;
             const title = finalMsgs.find(m => m.role === 'user')?.content.slice(0, 60) ?? 'Untitled';
             const toSave = finalMsgs.map(({ html: _, ...m }) => m);
             const { iv, ciphertext } = await encrypt(key, { messages: toSave, model, systemPrompt, title });
