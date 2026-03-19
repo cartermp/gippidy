@@ -8,7 +8,8 @@ import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
 type Role = 'user' | 'assistant';
 type Image       = { data: string; mimeType: string };        // base64, no prefix
 type PendingFile = { name: string; content: string };         // text/code files
-type Message     = { role: Role; content: string; html?: string; images?: Image[] };
+type PendingPdf  = { name: string; data: string };            // base64 PDF
+type Message     = { role: Role; content: string; html?: string; images?: Image[]; pdfs?: PendingPdf[] };
 
 const MODELS = [
   { id: 'gpt-5.4',                label: 'GPT-5.4',           provider: 'openai' },
@@ -57,6 +58,17 @@ function readTextFiles(files: File[], onEach: (f: PendingFile) => void) {
   });
 }
 
+function readPdfFiles(files: File[], onEach: (f: PendingPdf) => void) {
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = (reader.result as string).split(',')[1];
+      onEach({ name: file.name, data });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Home() {
   const [messages, setMessages]                 = useState<Message[]>([]);
   const [input, setInput]                       = useState('');
@@ -68,6 +80,7 @@ export default function Home() {
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
   const [pendingFiles, setPendingFiles]         = useState<PendingFile[]>([]);
+  const [pendingPdfs, setPendingPdfs]           = useState<PendingPdf[]>([]);
   const [shareLabel, setShareLabel]             = useState('[SHARE]');
   const [showScrollBtn, setShowScrollBtn]       = useState(false);
   const [copiedMsgIndex, setCopiedMsgIndex]     = useState<number | null>(null);
@@ -283,8 +296,10 @@ export default function Home() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const all   = Array.from(e.target.files ?? []);
     const imgs  = all.filter(f => f.type.startsWith('image/'));
-    const texts = all.filter(f => !f.type.startsWith('image/'));
-    readImageFiles(imgs,  img => setPendingImages(imgs => [...imgs, img]));
+    const pdfs  = all.filter(f => f.type === 'application/pdf');
+    const texts = all.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf');
+    readImageFiles(imgs, img => setPendingImages(imgs => [...imgs, img]));
+    readPdfFiles(pdfs,   pdf => setPendingPdfs(ps => [...ps, pdf]));
     readTextFiles(texts, f   => setPendingFiles(fs => [...fs, f]));
     e.target.value = '';
   };
@@ -293,8 +308,10 @@ export default function Home() {
     e.preventDefault();
     const all   = Array.from(e.dataTransfer.files);
     const imgs  = all.filter(f => f.type.startsWith('image/'));
-    const texts = all.filter(f => !f.type.startsWith('image/'));
-    readImageFiles(imgs,  img => setPendingImages(imgs => [...imgs, img]));
+    const pdfs  = all.filter(f => f.type === 'application/pdf');
+    const texts = all.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf');
+    readImageFiles(imgs, img => setPendingImages(imgs => [...imgs, img]));
+    readPdfFiles(pdfs,   pdf => setPendingPdfs(ps => [...ps, pdf]));
     readTextFiles(texts, f   => setPendingFiles(fs => [...fs, f]));
   };
 
@@ -431,7 +448,7 @@ export default function Home() {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if ((!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) || streaming) return;
+    if ((!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0) || streaming) return;
 
     textareaRef.current?.focus();
 
@@ -451,11 +468,13 @@ export default function Home() {
       role: 'user',
       content: fullContent,
       ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
+      ...(pendingPdfs.length  > 0 ? { pdfs:   pendingPdfs  } : {}),
     };
     const currentWebSearch = webSearch;
     setInput('');
     setPendingImages([]);
     setPendingFiles([]);
+    setPendingPdfs([]);
     setWebSearch(false);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
@@ -704,12 +723,18 @@ export default function Home() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
       >
-        {(pendingImages.length > 0 || pendingFiles.length > 0) && (
+        {(pendingImages.length > 0 || pendingFiles.length > 0 || pendingPdfs.length > 0) && (
           <div className="pending-attachments">
             {pendingImages.map((img, i) => (
               <div key={`img-${i}`} className="pending-image">
                 <img src={`data:${img.mimeType};base64,${img.data}`} alt="" />
                 <button type="button" onClick={() => setPendingImages(imgs => imgs.filter((_, j) => j !== i))}>×</button>
+              </div>
+            ))}
+            {pendingPdfs.map((p, i) => (
+              <div key={`pdf-${i}`} className="pending-file">
+                <span>📄 {p.name}</span>
+                <button type="button" onClick={() => setPendingPdfs(ps => ps.filter((_, j) => j !== i))}>×</button>
               </div>
             ))}
             {pendingFiles.map((f, i) => (
@@ -734,7 +759,7 @@ export default function Home() {
           <input
             ref={fileRef}
             type="file"
-            accept="image/*,text/*,.json,.yaml,.yml,.toml,.md,.csv,.py,.js,.ts,.jsx,.tsx,.rs,.go,.rb,.java,.c,.cpp,.h,.cs,.swift,.sh,.sql"
+            accept="image/*,application/pdf,text/*,.json,.yaml,.yml,.toml,.md,.csv,.py,.js,.ts,.jsx,.tsx,.rs,.go,.rb,.java,.c,.cpp,.h,.cs,.swift,.sh,.sql"
             multiple
             onChange={handleFileSelect}
             style={{ display: 'none' }}
@@ -745,7 +770,7 @@ export default function Home() {
           </div>
           <button
             type="submit"
-            disabled={streaming || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)}
+            disabled={streaming || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0)}
             onPointerDown={(e) => e.preventDefault()}
           >
             {streaming ? '[…]' : '[SEND]'}

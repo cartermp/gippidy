@@ -71,11 +71,28 @@ test('toOpenAIMessages: image-only message (no text) omits text block', () => {
   assert.equal(parts[0].type, 'image_url');
 });
 
+test('toOpenAIMessages: PDF becomes a text note (not supported natively)', () => {
+  const msgs = [{ role: 'user', content: 'summarize this', pdfs: [{ name: 'report.pdf', data: 'abc' }] }];
+  const out  = toOpenAIMessages(msgs) as Array<{ role: string; content: string }>;
+  assert.ok(out[0].content.includes('report.pdf'), `PDF name should appear in text, got: ${out[0].content}`);
+  assert.ok(out[0].content.includes('summarize this'));
+});
+
 // ── toAnthropicMessages ──────────────────────────────────────────────────────
 
 test('toAnthropicMessages: plain text round-trips', () => {
   const msgs = [{ role: 'user', content: 'hello' }];
   assert.deepEqual(toAnthropicMessages(msgs), [{ role: 'user', content: 'hello' }]);
+});
+
+test('toAnthropicMessages: PDF becomes document block', () => {
+  const msgs = [{ role: 'user', content: 'summarize', pdfs: [{ name: 'doc.pdf', data: 'pdfdata' }] }];
+  const out  = toAnthropicMessages(msgs) as Array<{ role: string; content: unknown }>;
+  const parts = out[0].content as Array<{ type: string; source?: { type: string; media_type: string; data: string } }>;
+  assert.equal(parts[0].type, 'document');
+  assert.equal(parts[0].source?.type, 'base64');
+  assert.equal(parts[0].source?.media_type, 'application/pdf');
+  assert.equal(parts[0].source?.data, 'pdfdata');
 });
 
 test('toAnthropicMessages: image becomes base64 source block', () => {
@@ -99,6 +116,12 @@ test('toGeminiContents: user role preserved', () => {
 test('toGeminiContents: assistant → model', () => {
   const out = toGeminiContents([{ role: 'assistant', content: 'hello' }]);
   assert.equal(out[0].role, 'model');
+});
+
+test('toGeminiContents: PDF becomes inlineData part with application/pdf', () => {
+  const msgs = [{ role: 'user', content: 'read this', pdfs: [{ name: 'doc.pdf', data: 'pdfdata' }] }];
+  const out  = toGeminiContents(msgs);
+  assert.deepEqual(out[0].parts[0], { inlineData: { mimeType: 'application/pdf', data: 'pdfdata' } });
 });
 
 test('toGeminiContents: image becomes inlineData part', () => {
