@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, type Message } from '@/lib/chat';
+import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, parseOpenAIChunk, parseAnthropicChunk, parseGeminiChunk, parseOpenAIResponsesChunk, type Message } from '@/lib/chat';
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
 
@@ -160,11 +160,8 @@ export async function POST(req: NextRequest) {
               if (!line.startsWith('data: ')) continue;
               const data = line.slice(6).trim();
               if (!data) continue;
-              try {
-                const parsed = JSON.parse(data);
-                const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-                if (text) controller.enqueue(encoder.encode(text));
-              } catch { /* skip */ }
+              const text = parseGeminiChunk(data);
+              if (text) controller.enqueue(encoder.encode(text));
             }
           }
         } finally {
@@ -221,16 +218,8 @@ export async function POST(req: NextRequest) {
               if (line.startsWith('event: '))      { curEvent = line.slice(7).trim(); continue; }
               if (line === '')                      { curEvent = ''; continue; }
               if (!line.startsWith('data: '))      continue;
-              // Signal client that search is done and text generation is starting
-              if (curEvent === 'response.web_search_call.completed') {
-                controller.enqueue(encoder.encode('\0'));
-                continue;
-              }
-              if (curEvent !== 'response.output_text.delta') continue;
-              try {
-                const parsed = JSON.parse(line.slice(6));
-                if (parsed.delta) controller.enqueue(encoder.encode(parsed.delta));
-              } catch { /* skip */ }
+              const out = parseOpenAIResponsesChunk(curEvent, line.slice(6));
+              if (out) controller.enqueue(encoder.encode(out));
             }
           }
         } finally {
@@ -301,20 +290,10 @@ export async function POST(req: NextRequest) {
             const data = line.slice(6).trim();
             if (!data || data === '[DONE]') continue;
 
-            try {
-              const parsed = JSON.parse(data);
-              let text = '';
-              if (provider === 'openai') {
-                text = parsed.choices?.[0]?.delta?.content ?? '';
-              } else {
-                if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
-                  text = parsed.delta.text ?? '';
-                }
-              }
-              if (text) controller.enqueue(encoder.encode(text));
-            } catch {
-              // skip malformed SSE lines
-            }
+            const text = provider === 'openai'
+              ? parseOpenAIChunk(data)
+              : parseAnthropicChunk(data);
+            if (text) controller.enqueue(encoder.encode(text));
           }
         }
       } finally {

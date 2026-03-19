@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents } from '../lib/chat.ts';
+import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, parseOpenAIChunk, parseAnthropicChunk, parseGeminiChunk, parseOpenAIResponsesChunk } from '../lib/chat.ts';
 import { renderMarkdown } from '../lib/markdown.ts';
 import { getOrCreateKey, encrypt, decrypt } from '../lib/crypto.ts';
 
@@ -78,6 +78,16 @@ test('toOpenAIMessages: PDF becomes a text note (not supported natively)', () =>
   assert.ok(out[0].content.includes('summarize this'));
 });
 
+test('toOpenAIMessages: PDF + image together — image_url block and PDF note both present', () => {
+  const msgs = [{ role: 'user', content: 'check both', images: [{ data: 'img', mimeType: 'image/png' }], pdfs: [{ name: 'doc.pdf', data: 'pdfdata' }] }];
+  const out = toOpenAIMessages(msgs) as Array<{ role: string; content: unknown }>;
+  const parts = out[0].content as Array<{ type: string; image_url?: { url: string }; text?: string }>;
+  assert.equal(parts[0].type, 'image_url');
+  const textPart = parts.find(p => p.type === 'text');
+  assert.ok(textPart?.text?.includes('doc.pdf'), `PDF name missing from text, got: ${textPart?.text}`);
+  assert.ok(textPart?.text?.includes('check both'));
+});
+
 // ── toAnthropicMessages ──────────────────────────────────────────────────────
 
 test('toAnthropicMessages: plain text round-trips', () => {
@@ -98,11 +108,32 @@ test('toAnthropicMessages: PDF becomes document block', () => {
 test('toAnthropicMessages: image becomes base64 source block', () => {
   const msgs = [{ role: 'user', content: 'look', images: [{ data: 'abc', mimeType: 'image/png' }] }];
   const out = toAnthropicMessages(msgs) as Array<{ role: string; content: unknown }>;
-  const parts = out[0].content as Array<{ type: string; source?: { type: string; media_type: string; data: string } }>;
+  const parts = out[0].content as Array<{ type: string; source?: { type: string; media_type: string; data: string }; text?: string }>;
   assert.equal(parts[0].type, 'image');
   assert.equal(parts[0].source?.type, 'base64');
   assert.equal(parts[0].source?.media_type, 'image/png');
   assert.equal(parts[0].source?.data, 'abc');
+  const textPart = parts.find(p => p.type === 'text');
+  assert.ok(textPart, 'text block should be present');
+  assert.equal(textPart?.text, 'look');
+});
+
+test('toAnthropicMessages: PDF + image together — PDF first, then image, then text', () => {
+  const msgs = [{ role: 'user', content: 'analyze', images: [{ data: 'img', mimeType: 'image/jpeg' }], pdfs: [{ name: 'doc.pdf', data: 'pdfdata' }] }];
+  const out = toAnthropicMessages(msgs) as Array<{ role: string; content: unknown }>;
+  const parts = out[0].content as Array<{ type: string; source?: { media_type: string }; text?: string }>;
+  assert.equal(parts[0].type, 'document');
+  assert.equal(parts[1].type, 'image');
+  assert.equal(parts[2].type, 'text');
+  assert.equal(parts[2].text, 'analyze');
+});
+
+test('toAnthropicMessages: image-only (no text) omits text block', () => {
+  const msgs = [{ role: 'user', content: '', images: [{ data: 'abc', mimeType: 'image/png' }] }];
+  const out = toAnthropicMessages(msgs) as Array<{ role: string; content: unknown }>;
+  const parts = out[0].content as Array<{ type: string }>;
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].type, 'image');
 });
 
 // ── toGeminiContents ─────────────────────────────────────────────────────────
@@ -129,6 +160,21 @@ test('toGeminiContents: image becomes inlineData part', () => {
   const out = toGeminiContents(msgs);
   assert.deepEqual(out[0].parts[0], { inlineData: { mimeType: 'image/png', data: 'abc' } });
   assert.equal(out[0].parts.length, 1); // no text part since content is empty
+});
+
+test('toGeminiContents: image + text — text part appended after inlineData', () => {
+  const msgs = [{ role: 'user', content: 'describe this', images: [{ data: 'abc', mimeType: 'image/jpeg' }] }];
+  const out = toGeminiContents(msgs);
+  assert.equal(out[0].parts.length, 2);
+  assert.deepEqual(out[0].parts[1], { text: 'describe this' });
+});
+
+test('toGeminiContents: PDF + image together — PDF first, then image, then text', () => {
+  const msgs = [{ role: 'user', content: 'read both', images: [{ data: 'img', mimeType: 'image/png' }], pdfs: [{ name: 'doc.pdf', data: 'pdfdata' }] }];
+  const out = toGeminiContents(msgs);
+  assert.deepEqual(out[0].parts[0], { inlineData: { mimeType: 'application/pdf', data: 'pdfdata' } });
+  assert.deepEqual(out[0].parts[1], { inlineData: { mimeType: 'image/png', data: 'img' } });
+  assert.deepEqual(out[0].parts[2], { text: 'read both' });
 });
 
 // ── renderMarkdown ───────────────────────────────────────────────────────────
@@ -180,6 +226,66 @@ test('parseStreamError: 500 → server error message', () => {
 
 test('parseStreamError: unknown error includes status code', () => {
   assert.ok(parseStreamError(400, 'bad request').includes('400'));
+});
+
+// ── SSE chunk parsers ─────────────────────────────────────────────────────────
+
+test('parseOpenAIChunk: extracts delta content', () => {
+  const chunk = JSON.stringify({ choices: [{ delta: { content: 'hello' } }] });
+  assert.equal(parseOpenAIChunk(chunk), 'hello');
+});
+
+test('parseOpenAIChunk: returns empty string for non-content delta', () => {
+  const chunk = JSON.stringify({ choices: [{ delta: {} }] });
+  assert.equal(parseOpenAIChunk(chunk), '');
+});
+
+test('parseOpenAIChunk: returns empty string for malformed JSON', () => {
+  assert.equal(parseOpenAIChunk('not json'), '');
+});
+
+test('parseAnthropicChunk: extracts text_delta', () => {
+  const chunk = JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'world' } });
+  assert.equal(parseAnthropicChunk(chunk), 'world');
+});
+
+test('parseAnthropicChunk: returns empty for non-text_delta types', () => {
+  const chunk = JSON.stringify({ type: 'content_block_start', index: 0 });
+  assert.equal(parseAnthropicChunk(chunk), '');
+});
+
+test('parseAnthropicChunk: returns empty for malformed JSON', () => {
+  assert.equal(parseAnthropicChunk('bad'), '');
+});
+
+test('parseGeminiChunk: extracts text from candidates', () => {
+  const chunk = JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hi' }] } }] });
+  assert.equal(parseGeminiChunk(chunk), 'hi');
+});
+
+test('parseGeminiChunk: returns empty for missing candidates', () => {
+  assert.equal(parseGeminiChunk(JSON.stringify({})), '');
+});
+
+test('parseGeminiChunk: returns empty for malformed JSON', () => {
+  assert.equal(parseGeminiChunk('bad'), '');
+});
+
+test('parseOpenAIResponsesChunk: web_search_call.completed → null byte signal', () => {
+  assert.equal(parseOpenAIResponsesChunk('response.web_search_call.completed', ''), '\0');
+});
+
+test('parseOpenAIResponsesChunk: output_text.delta → extracted delta', () => {
+  const data = JSON.stringify({ delta: 'some text' });
+  assert.equal(parseOpenAIResponsesChunk('response.output_text.delta', data), 'some text');
+});
+
+test('parseOpenAIResponsesChunk: unrelated event → empty string', () => {
+  assert.equal(parseOpenAIResponsesChunk('response.created', '{}'), '');
+});
+
+test('parseOpenAIResponsesChunk: output_text.delta with malformed JSON → empty string', () => {
+  assert.equal(parseOpenAIResponsesChunk('response.output_text.delta', 'bad json'), '');
 });
 
 // ── crypto ────────────────────────────────────────────────────────────────────

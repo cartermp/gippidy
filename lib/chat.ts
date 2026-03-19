@@ -66,3 +66,40 @@ export function toGeminiContents(messages: Message[]) {
     ],
   }));
 }
+
+// ── SSE chunk parsers (pure, exported for testing) ───────────────────────────
+
+export function parseOpenAIChunk(data: string): string {
+  try {
+    const parsed = JSON.parse(data);
+    return parsed.choices?.[0]?.delta?.content ?? '';
+  } catch { return ''; }
+}
+
+export function parseAnthropicChunk(data: string): string {
+  try {
+    const parsed = JSON.parse(data);
+    if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+      return parsed.delta.text ?? '';
+    }
+    return '';
+  } catch { return ''; }
+}
+
+export function parseGeminiChunk(data: string): string {
+  try {
+    const parsed = JSON.parse(data);
+    return parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  } catch { return ''; }
+}
+
+// Parses OpenAI Responses API SSE. Returns '\0' for web_search_call.completed signal,
+// the delta text for output_text.delta, or '' for everything else.
+export function parseOpenAIResponsesChunk(event: string, data: string): string {
+  if (event === 'response.web_search_call.completed') return '\0';
+  if (event !== 'response.output_text.delta') return '';
+  try {
+    const parsed = JSON.parse(data);
+    return parsed.delta ?? '';
+  } catch { return ''; }
+}
