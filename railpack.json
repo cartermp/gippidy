@@ -1,0 +1,11 @@
+{
+  "packages": {
+    "node": "22",
+    "pnpm": "10"
+  },
+  "build": {
+    "install": {
+      "cmds": ["pnpm install --frozen-lockfile --prefer-offline"]
+    }
+  }
+}
