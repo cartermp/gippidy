@@ -3,6 +3,12 @@
     "node": "22",
     "pnpm": "10"
   },
+  "caches": {
+    "next": {
+      "directory": ".next/cache",
+      "type": "shared"
+    }
+  },
   "build": {
     "install": {
       "cmds": ["pnpm install --frozen-lockfile --prefer-offline"]
