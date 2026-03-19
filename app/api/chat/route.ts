@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
 import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, type Message } from '@/lib/chat';
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
@@ -128,28 +127,45 @@ export async function POST(req: NextRequest) {
 
   // ── Google ───────────────────────────────────────────────────────────────
   if (provider === 'google') {
-    const ai = new GoogleGenAI({ apiKey });
-    let sdkStream: AsyncIterable<import('@google/genai').GenerateContentResponse>;
-    try {
-      sdkStream = await ai.models.generateContentStream({
-        model,
-        contents: toGeminiContents(messages),
-        config: {
-          ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
-          ...(webSearch    ? { tools: [{ googleSearch: {} }] }  : {}),
-        },
-      });
-    } catch (e) {
-      return new Response(String(e), { status: 500 });
-    }
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: toGeminiContents(messages),
+          ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
+          ...(webSearch    ? { tools: [{ googleSearch: {} }] } : {}),
+        }),
+        signal,
+      },
+    );
+
+    if (!upstream.ok) return new Response(await upstream.text(), { status: upstream.status });
 
     const stream = new ReadableStream({
       async start(controller) {
-        const enc = new TextEncoder();
+        const reader  = upstream.body!.getReader();
+        const decoder = new TextDecoder();
+        const encoder = new TextEncoder();
+        let buffer    = '';
         try {
-          for await (const chunk of sdkStream) {
-            if (signal.aborted) break;
-            if (chunk.text) controller.enqueue(enc.encode(chunk.text));
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6).trim();
+              if (!data) continue;
+              try {
+                const parsed = JSON.parse(data);
+                const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+                if (text) controller.enqueue(encoder.encode(text));
+              } catch { /* skip */ }
+            }
           }
         } finally {
           controller.close();
