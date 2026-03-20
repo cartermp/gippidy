@@ -1,8 +1,7 @@
 import { Pool } from 'pg';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: true },
-});
+const connectionString = process.env.DATABASE_URL?.replace(/sslmode=\w+/, 'sslmode=verify-full');
+
+const pool = new Pool({ connectionString });
 
 export const query = async (sql: string, params?: unknown[]) => pool.query(sql, params);
