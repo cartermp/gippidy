@@ -9,6 +9,15 @@ export const runtime = 'nodejs';
 const RATE_LIMIT     = 20;
 const RATE_WINDOW_MS = 60_000;
 const TIMEOUT_MS     = 60_000;
+const MAX_MESSAGES   = 200;
+
+const ALLOWED_MODELS = new Set([
+  'gpt-5.4',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'gemini-3.1-pro-preview',
+  'gemini-3-flash-preview',
+]);
 
 async function checkRateLimit(email: string): Promise<boolean> {
   const bucket = new Date(Math.floor(Date.now() / RATE_WINDOW_MS) * RATE_WINDOW_MS).toISOString();
@@ -120,12 +129,26 @@ export async function POST(req: NextRequest) {
     return new Response('Rate limit exceeded', { status: 429 });
   }
 
-  const { messages, model, systemPrompt, webSearch } = await req.json() as {
+  const body = await req.json() as {
     messages: Message[];
     model: string;
     systemPrompt?: string;
     webSearch?: boolean;
   };
+  const { messages, model, systemPrompt, webSearch } = body;
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    ctx.status = 400; ctx.error = 'invalid_messages';
+    return new Response('Invalid messages', { status: 400 });
+  }
+  if (messages.length > MAX_MESSAGES) {
+    ctx.status = 400; ctx.error = 'too_many_messages';
+    return new Response(`Too many messages (max ${MAX_MESSAGES})`, { status: 400 });
+  }
+  if (!ALLOWED_MODELS.has(model)) {
+    ctx.status = 400; ctx.error = 'invalid_model';
+    return new Response(`Unknown model: ${model}`, { status: 400 });
+  }
 
   const provider = getProvider(model);
   ctx.model = model;
