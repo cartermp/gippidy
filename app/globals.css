@@ -680,6 +680,22 @@ header select option {
 }
 .content th { color: var(--green); background: #111; }
 
+/* ── share view ── */
+.share-view {
+  border-color: #383838;
+}
+
+.share-banner {
+  text-align: center;
+  padding: 4px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  background: #080808;
+  flex-shrink: 0;
+}
+
 /* ── login page ── */
 
 .login-page {

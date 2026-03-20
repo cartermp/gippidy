@@ -46,7 +46,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
   });
 
   return (
-    <div className="app">
+    <div className="app share-view">
       <header>
         <span className="logo">GIPPIDY</span>
         <span className="share-meta">{share.model} · {date}</span>
@@ -64,6 +64,8 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
           }
         </div>
       </header>
+
+      <div className="share-banner">[ read-only · shared chat ]</div>
 
       <div className="messages">
         {messages.map((msg, i) => (
