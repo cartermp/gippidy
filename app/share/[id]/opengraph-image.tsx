@@ -1,22 +1,32 @@
 import { ImageResponse } from 'next/og';
 import { query } from '@/lib/db';
+import logger from '@/lib/log';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
 type Message = { role: string; content: string };
 
+const fallback = (label: string) => new ImageResponse(
+  <div style={{ background: '#0c0c0c', color: '#555', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' }}>
+    {label}
+  </div>,
+  size,
+);
+
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await query('SELECT model, messages, created_at FROM shared_chats WHERE id = $1', [id]);
+
+  let result;
+  try {
+    result = await query('SELECT model, messages, created_at FROM shared_chats WHERE id = $1', [id]);
+  } catch (err) {
+    logger.error({ id, err: String(err) }, 'og.image db_error');
+    return fallback('unavailable');
+  }
 
   if (result.rows.length === 0) {
-    return new ImageResponse(
-      <div style={{ background: '#0c0c0c', color: '#555', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' }}>
-        not found
-      </div>,
-      size,
-    );
+    return fallback('not found');
   }
 
   const { model, messages, created_at }: { model: string; messages: Message[]; created_at: string } = result.rows[0];
