@@ -1,6 +1,6 @@
 # gippidy
 
-A minimal LLM chat app. Supports OpenAI, Anthropic, and Google Gemini models with streaming responses, markdown rendering, image inputs, and shareable chat sessions. Hosted on Vercel.
+A minimal LLM chat app. Supports OpenAI, Anthropic, and Google Gemini models with streaming responses, markdown rendering, image and PDF inputs, web search, encrypted chat history, and shareable chat sessions. Hosted on Vercel.
 
 ## Prerequisites
 
@@ -33,6 +33,12 @@ DATABASE_URL=postgres://...
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_GENERATIVE_AI_API_KEY=AIza...
+
+# Optional: set to debug, info, warn, or error (default: info)
+LOG_LEVEL=info
+
+# Base URL for OG image metadata (defaults to https://www.gippidy.chat)
+NEXT_PUBLIC_BASE_URL=https://your-domain.vercel.app
 ```
 
 ## Google OAuth setup
@@ -48,7 +54,7 @@ GOOGLE_GENERATIVE_AI_API_KEY=AIza...
 
 ```bash
 pnpm install
-pnpm db:migrate   # creates the shared_chats table — run once against your Neon DB
+pnpm db:migrate   # creates DB tables — run once against your Neon DB
 pnpm dev
 ```
 
@@ -69,10 +75,15 @@ Add your production Vercel URL to the authorized redirect URIs in Google Cloud C
 - **Multiple models** — GPT-5.4, Claude Opus 4.6, Claude Sonnet 4.6, Gemini 3.1 Pro, Gemini 3 Flash
 - **Streaming responses** with smart scroll (auto-follows stream unless you scroll up)
 - **Markdown + syntax highlighting** via marked and highlight.js
-- **Image inputs** — attach via file picker, paste from clipboard
-- **System prompt** — configurable per-session, persisted in localStorage
-- **Shared chats** — generate a shareable URL; recipients must be authenticated to view; they can fork the chat to continue it themselves
+- **Image inputs** — attach via file picker, paste from clipboard, or drag and drop
+- **PDF inputs** — attach PDFs for models that support document reading (Anthropic, Gemini)
+- **File inputs** — attach text/code files; contents are inlined as XML-tagged blocks
+- **Web search** — per-request toggle; uses each provider's native search tool
+- **System prompt** — configurable, persisted server-side per user
+- **Encrypted chat history** — saved chats are AES-GCM encrypted client-side; key is stored server-side so it's shared across devices
+- **Shared chats** — generate a shareable read-only URL with OG image preview; authenticated users can fork the chat to continue it
 - **Google OAuth** — restricted to a configurable allowlist of emails
+- **Health endpoint** — `GET /api/health` checks DB connectivity; suitable for uptime monitors
 
 ## Scripts
 
@@ -81,4 +92,5 @@ Add your production Vercel URL to the authorized redirect URIs in Google Cloud C
 | `pnpm dev` | Start development server |
 | `pnpm build` | Production build |
 | `pnpm start` | Start production server |
+| `pnpm test` | Run unit tests |
 | `pnpm db:migrate` | Create database tables (run once) |
