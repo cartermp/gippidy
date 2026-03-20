@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
-import { log } from '@/lib/log';
+import logger from '@/lib/log';
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -24,6 +24,6 @@ export async function POST(req: NextRequest) {
     [id, session.user.email, model, systemPrompt || null, JSON.stringify(messages)],
   );
 
-  log('share.create', { user: session.user.email, id, model, msgs: messages.length });
+  logger.info({ user: session.user.email, id, model, msgs: messages.length }, 'share.create');
   return Response.json({ id });
 }

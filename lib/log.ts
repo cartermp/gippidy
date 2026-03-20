@@ -1,8 +1,7 @@
-type Fields = Record<string, string | number | boolean | undefined>;
+import pino from 'pino';
 
-export function log(event: string, fields: Fields): void {
-  const parts = Object.entries(fields)
-    .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => `${k}=${v}`);
-  console.log(`[${event}] ${parts.join(' ')}`);
-}
+const logger = pino({
+  level: process.env.LOG_LEVEL ?? 'info',
+});
+
+export default logger;

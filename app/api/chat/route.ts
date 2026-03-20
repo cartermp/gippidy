@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, parseOpenAIChunk, parseAnthropicChunk, parseGeminiChunk, parseOpenAIResponsesChunk, type Message } from '@/lib/chat';
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
-import { log } from '@/lib/log';
+import logger from '@/lib/log';
 
 export const runtime = 'nodejs';
 
@@ -341,6 +341,10 @@ export async function POST(req: NextRequest) {
     ctx.error = String(err).slice(0, 120);
     throw err;
   } finally {
-    log('chat', { ...ctx, ms: Date.now() - t });
+    const fields = { ...ctx, ms: Date.now() - t };
+    const status = ctx.status as number | undefined;
+    if (!status || status >= 500)   logger.error(fields, 'chat');
+    else if (status >= 400)         logger.warn(fields, 'chat');
+    else                            logger.info(fields, 'chat');
   }
 }
