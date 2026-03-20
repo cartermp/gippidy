@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, parseOpenAIChunk, parseAnthropicChunk, parseGeminiChunk, parseOpenAIResponsesChunk, type Message } from '@/lib/chat';
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
+import { log } from '@/lib/log';
 
 export const runtime = 'nodejs';
 
@@ -101,11 +102,23 @@ async function anthropicWebSearch(
 }
 
 export async function POST(req: NextRequest) {
+  const t = Date.now();
+  const ctx: Record<string, string | number | boolean> = {};
+
+  try {
+
   const session = await auth();
-  if (!session?.user?.email) return new Response('Unauthorized', { status: 401 });
+  if (!session?.user?.email) {
+    ctx.status = 401; ctx.error = 'unauthenticated';
+    return new Response('Unauthorized', { status: 401 });
+  }
+  ctx.user = session.user.email;
 
   const allowed = await checkRateLimit(session.user.email);
-  if (!allowed) return new Response('Rate limit exceeded', { status: 429 });
+  if (!allowed) {
+    ctx.status = 429;
+    return new Response('Rate limit exceeded', { status: 429 });
+  }
 
   const { messages, model, systemPrompt, webSearch } = await req.json() as {
     messages: Message[];
@@ -115,13 +128,20 @@ export async function POST(req: NextRequest) {
   };
 
   const provider = getProvider(model);
+  ctx.model = model;
+  ctx.provider = provider;
+  ctx.msgs = messages.length;
+  if (webSearch) ctx.webSearch = true;
 
   const apiKey =
     (provider === 'openai'    ? process.env.OPENAI_API_KEY               : undefined) ||
     (provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY            : undefined) ||
     (provider === 'google'    ? process.env.GOOGLE_GENERATIVE_AI_API_KEY : undefined);
 
-  if (!apiKey) return new Response(`No API key for ${provider}`, { status: 401 });
+  if (!apiKey) {
+    ctx.status = 401; ctx.error = `no_api_key`;
+    return new Response(`No API key for ${provider}`, { status: 401 });
+  }
 
   const signal = AbortSignal.any([req.signal, AbortSignal.timeout(TIMEOUT_MS)]);
 
@@ -141,8 +161,12 @@ export async function POST(req: NextRequest) {
       },
     );
 
-    if (!upstream.ok) return new Response(await upstream.text(), { status: upstream.status });
+    if (!upstream.ok) {
+      ctx.status = upstream.status; ctx.error = 'upstream_error';
+      return new Response(await upstream.text(), { status: upstream.status });
+    }
 
+    ctx.status = 200;
     const stream = new ReadableStream({
       async start(controller) {
         const reader  = upstream.body!.getReader();
@@ -175,7 +199,9 @@ export async function POST(req: NextRequest) {
 
   // ── Anthropic with web search: multi-turn loop ───────────────────────────
   if (provider === 'anthropic' && webSearch) {
-    return anthropicWebSearch(apiKey, messages, systemPrompt, model, signal);
+    const res = await anthropicWebSearch(apiKey, messages, systemPrompt, model, signal);
+    ctx.status = res.status;
+    return res;
   }
 
   // ── OpenAI with web search: Responses API ───────────────────────────────
@@ -195,8 +221,12 @@ export async function POST(req: NextRequest) {
       signal,
     });
 
-    if (!upstream.ok) return new Response(await upstream.text(), { status: upstream.status });
+    if (!upstream.ok) {
+      ctx.status = upstream.status; ctx.error = 'upstream_error';
+      return new Response(await upstream.text(), { status: upstream.status });
+    }
 
+    ctx.status = 200;
     const stream = new ReadableStream({
       async start(controller) {
         const reader  = upstream.body!.getReader();
@@ -266,9 +296,11 @@ export async function POST(req: NextRequest) {
 
   if (!upstream.ok) {
     const body = await upstream.text();
+    ctx.status = upstream.status; ctx.error = 'upstream_error';
     return new Response(body, { status: upstream.status });
   }
 
+  ctx.status = 200;
   const stream = new ReadableStream({
     async start(controller) {
       const reader  = upstream.body!.getReader();
@@ -303,4 +335,12 @@ export async function POST(req: NextRequest) {
   });
 
   return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+
+  } catch (err) {
+    ctx.status = 500;
+    ctx.error = String(err).slice(0, 120);
+    throw err;
+  } finally {
+    log('chat', { ...ctx, ms: Date.now() - t });
+  }
 }

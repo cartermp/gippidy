@@ -5,6 +5,7 @@ import { auth, signIn } from '@/auth';
 import { query } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
 import ForkButton from './fork-button';
+import { log } from '@/lib/log';
 
 type Image = { mimeType: string; data: string };
 type Message = { role: string; content: string; images?: Image[] };
@@ -37,9 +38,13 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
     query('SELECT * FROM shared_chats WHERE id = $1', [id]),
   ]);
 
-  if (dbResult.rows.length === 0) notFound();
+  if (dbResult.rows.length === 0) {
+    log('share.view', { id, found: false });
+    notFound();
+  }
 
   const share = dbResult.rows[0];
+  log('share.view', { id, model: share.model, msgs: (share.messages as unknown[]).length, authed: !!sessionResult });
   const messages: Message[] = share.messages;
   const date = new Date(share.created_at).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
+import { log } from '@/lib/log';
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -23,5 +24,6 @@ export async function POST(req: NextRequest) {
     [id, session.user.email, model, systemPrompt || null, JSON.stringify(messages)],
   );
 
+  log('share.create', { user: session.user.email, id, model, msgs: messages.length });
   return Response.json({ id });
 }
