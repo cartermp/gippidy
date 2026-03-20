@@ -57,7 +57,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
 
       {/* footer */}
       <div style={{ color: '#555', fontSize: 20, marginTop: '40px' }}>
-        {msgCount} message{msgCount !== 1 ? 's' : ''} · gippidy.chat
+        {`${msgCount} message${msgCount !== 1 ? 's' : ''} · gippidy.chat`}
       </div>
     </div>,
     size,
