@@ -381,7 +381,6 @@ header select option {
   white-space: pre-wrap;
   word-break: break-word;
   min-width: 0;
-  overflow: hidden;
 }
 
 .message.user .content      { color: var(--fg); }
@@ -597,9 +596,8 @@ header select option {
 .content h2 { font-size: 1.15em; }
 .content h3 { font-size: 1.05em; }
 
-.content ul, .content ol {
-  margin: 0.5em 0 0.75em 1.5em;
-}
+.content ul { margin: 0.5em 0 0.75em 0; padding-left: 1.5em; }
+.content ol { margin: 0.5em 0 0.75em 0; padding-left: 2.5em; }
 .content li { margin-bottom: 0.2em; }
 
 .content blockquote {
