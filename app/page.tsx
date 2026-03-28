@@ -755,6 +755,7 @@ export default function Home() {
             onPaste={handlePaste}
             placeholder="type a message… (enter to send, shift+enter for newline)"
             rows={1}
+            autoFocus
           />
           <input
             ref={fileRef}
