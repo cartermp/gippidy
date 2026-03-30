@@ -563,16 +563,9 @@ export default function Home() {
           {saveHistory && (
             <button onClick={handleOpenHistory}>{showHistory ? '[CHAT]' : '[HISTORY]'}</button>
           )}
-          {streaming && (
-            <button onClick={() => abortControllerRef.current?.abort()}>[STOP]</button>
-          )}
           {messages.length > 0 && !streaming && (
             <button onClick={handleShare}>{shareLabel}</button>
           )}
-          {messages.length > 0 && !streaming && (
-            <button onClick={handleExport}>[EXPORT]</button>
-          )}
-
           {messages.length > 0 && (
             <button onClick={() => { setMessages([]); chatIdRef.current = null; }}>[CLEAR]</button>
           )}
@@ -605,6 +598,12 @@ export default function Home() {
               <span style={{ fontSize: 12, color: 'var(--dim)' }}>{saveHistory ? 'on — encrypted in this browser' : 'off'}</span>
             </label>
           </div>
+          {messages.length > 0 && !streaming && (
+            <div className="settings-row">
+              <label>Export</label>
+              <button onClick={handleExport}>[EXPORT MARKDOWN]</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -773,13 +772,17 @@ export default function Home() {
             <button type="button" className={webSearch ? 'btn-active' : ''} onClick={() => setWebSearch(s => !s)} disabled={streaming}>[WEB]</button>
             <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[ATTACH]</button>
           </div>
-          <button
-            type="submit"
-            disabled={streaming || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0)}
-            onPointerDown={(e) => e.preventDefault()}
-          >
-            {streaming ? '[…]' : '[SEND]'}
-          </button>
+          {streaming ? (
+            <button type="button" onClick={() => abortControllerRef.current?.abort()}>[STOP]</button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0}
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              [SEND]
+            </button>
+          )}
         </div>
       </form>
     </div>
