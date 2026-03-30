@@ -118,13 +118,17 @@ header select option {
 @media (max-width: 540px) {
   header {
     flex-wrap: wrap;
+    padding: 6px 12px;
+  }
+  .model-label {
+    display: none;
   }
   .header-spacer {
     display: none;
   }
   .header-actions {
-    width: 100%;
-    justify-content: flex-end;
+    margin-left: auto; /* right-aligns on shared row or wraps right-aligned */
+    gap: 6px;
   }
 }
 
@@ -550,19 +554,18 @@ header select option {
   display: contents;
 }
 
-/* On mobile: tools break out into their own row above the textarea */
+/* On mobile: tools sit below the textarea, sharing a row with [SEND] */
 @media (pointer: coarse) {
+  .input-area {
+    padding: 8px 12px;
+  }
   .input-row {
     flex-wrap: wrap;
   }
   .input-tools {
     display: flex;
     gap: 8px;
-    order: -1;
-    width: 100%;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 2px;
+    flex: 1; /* fills left side of bottom row, pushing [SEND] right */
   }
 }
 
