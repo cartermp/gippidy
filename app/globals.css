@@ -127,8 +127,17 @@ header select option {
     display: none;
   }
   .header-actions {
-    margin-left: auto; /* right-aligns on shared row or wraps right-aligned */
-    gap: 6px;
+    margin-left: auto;
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  header button, header select {
+    font-size: 11px;
+    padding: 2px 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100px;
   }
 }
 
@@ -554,18 +563,34 @@ header select option {
   display: contents;
 }
 
-/* On mobile: tools sit below the textarea, sharing a row with [SEND] */
+/* On mobile: textarea gets its own full-width row; tools + [SEND] share the row below */
 @media (pointer: coarse) {
   .input-area {
     padding: 8px 12px;
   }
   .input-row {
     flex-wrap: wrap;
+    column-gap: 8px;
+    row-gap: 0;
   }
+  /* ::after at order 3 forces a line break between the textarea row and the action row */
+  .input-row::after {
+    content: '';
+    order: 3;
+    flex-basis: 100%;
+    height: 8px;
+  }
+  .input-prompt { order: 1; }
+  .input-row textarea { order: 2; }
   .input-tools {
     display: flex;
-    gap: 8px;
-    flex: 1; /* fills left side of bottom row, pushing [SEND] right */
+    gap: 6px;
+    order: 4;
+    flex: 1; /* pushes [SEND] to the right */
+  }
+  .input-row > button {
+    order: 5;
+    flex-shrink: 0;
   }
 }
 
