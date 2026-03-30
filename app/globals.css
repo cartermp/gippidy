@@ -317,6 +317,24 @@ header select option {
 .message:hover .msg-copy-btn { opacity: 1; }
 .msg-copy-btn:hover { color: var(--green); border-color: var(--border); }
 
+.msg-retry-btn {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--dim);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.message:hover .msg-retry-btn { opacity: 1; }
+.msg-retry-btn:hover { color: var(--fg); border-color: var(--border); }
+
 .saved-flash {
   color: var(--green);
   font-size: 11px;

@@ -549,8 +549,6 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const lastIsAssistant = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
-
   return (
     <div className="app">
       <header>
@@ -574,9 +572,7 @@ export default function Home() {
           {messages.length > 0 && !streaming && (
             <button onClick={handleExport}>[EXPORT]</button>
           )}
-          {lastIsAssistant && !streaming && (
-            <button onClick={handleRetry}>[RETRY]</button>
-          )}
+
           {messages.length > 0 && (
             <button onClick={() => { setMessages([]); chatIdRef.current = null; }}>[CLEAR]</button>
           )}
@@ -691,6 +687,9 @@ export default function Home() {
                 <button className="msg-copy-btn" onClick={() => copyMessage(msg.content, i)}>
                   {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
                 </button>
+              )}
+              {msg.role === 'assistant' && editingIndex === null && !streaming && i === messages.length - 1 && (
+                <button className="msg-retry-btn" onClick={handleRetry}>[RETRY]</button>
               )}
               {msg.role === 'user' && editingIndex === null && !streaming && (
                 <button className="msg-edit-btn" onClick={() => startEdit(i)}>[EDIT]</button>
