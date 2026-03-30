@@ -148,6 +148,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+      textareaRef.current?.focus();
+    }
+  }, []);
+
+  useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
     const onScroll = () => {
@@ -755,7 +761,6 @@ export default function Home() {
             onPaste={handlePaste}
             placeholder="type a message… (enter to send, shift+enter for newline)"
             rows={1}
-            autoFocus
           />
           <input
             ref={fileRef}
