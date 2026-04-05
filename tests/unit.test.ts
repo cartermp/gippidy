@@ -189,6 +189,20 @@ test('renderMarkdown: code block gets hljs class', () => {
   assert.ok(html.includes('hljs'), `got: ${html}`);
 });
 
+test('renderMarkdown: known language uses explicit highlight', () => {
+  const html = renderMarkdown('```python\ndef foo(): pass\n```');
+  assert.ok(html.includes('language-python'), `expected language-python class, got: ${html}`);
+  assert.ok(html.includes('hljs'), `expected hljs class, got: ${html}`);
+});
+
+test('renderMarkdown: unlabeled code block is auto-detected (not left as plaintext)', () => {
+  // A clearly identifiable snippet — auto-detect should recognise it
+  const html = renderMarkdown('```\nconst x: number = 42;\n```');
+  assert.ok(html.includes('hljs'), `expected hljs highlighting, got: ${html}`);
+  // Must NOT fall back to plaintext — auto-detection should fire
+  assert.ok(!html.includes('language-plaintext'), `should not fall back to plaintext, got: ${html}`);
+});
+
 test('renderMarkdown: plain text wrapped in paragraph', () => {
   const html = renderMarkdown('hello world');
   assert.ok(html.includes('<p>'), `got: ${html}`);
