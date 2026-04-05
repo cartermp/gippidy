@@ -441,3 +441,32 @@ test('getOrCreateKey: same server JWK produces same key across two calls (cross-
   const out = await decrypt<{ deployment: string }>(key2, iv, ciphertext);
   assert.equal(out.deployment, 'railway');
 });
+
+// ── CSS layout regression ────────────────────────────────────────────────────
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+test('input-row uses align-items: flex-start so the > prompt icon stays at the top', () => {
+  const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+
+  // Extract the .input-row rule block
+  const match = css.match(/\.input-row\s*\{([^}]*)\}/);
+  assert.ok(match, '.input-row rule not found in globals.css');
+  const rule = match[1];
+
+  assert.ok(
+    rule.includes('align-items: flex-start'),
+    '.input-row must use align-items: flex-start (not flex-end) so > stays at top of multi-line input',
+  );
+});
+
+test('input-prompt uses padding-top (not padding-bottom) to align with top of textarea', () => {
+  const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+
+  const match = css.match(/\.input-prompt\s*\{([^}]*)\}/);
+  assert.ok(match, '.input-prompt rule not found in globals.css');
+  const rule = match[1];
+
+  assert.ok(!rule.includes('padding-bottom'), '.input-prompt must not use padding-bottom');
+});
