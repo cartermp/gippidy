@@ -53,6 +53,10 @@ await pool.query(`
     PRIMARY KEY (email, bucket)
   )
 `);
+await pool.query(`
+  CREATE INDEX IF NOT EXISTS rate_limits_bucket
+    ON rate_limits(bucket)
+`);
 console.log('✓ rate_limits table ready');
 
 await pool.end();
