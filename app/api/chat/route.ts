@@ -143,6 +143,14 @@ export async function POST(req: NextRequest) {
     ctx.status = 400; ctx.error = 'invalid_model';
     return new Response(`Unknown model: ${model}`, { status: 400 });
   }
+  if (systemPrompt !== undefined && typeof systemPrompt !== 'string') {
+    ctx.status = 400; ctx.error = 'invalid_system_prompt';
+    return new Response('Invalid systemPrompt', { status: 400 });
+  }
+  if (webSearch !== undefined && typeof webSearch !== 'boolean') {
+    ctx.status = 400; ctx.error = 'invalid_web_search';
+    return new Response('Invalid webSearch', { status: 400 });
+  }
 
   const provider = getProvider(model);
   ctx.model = model;
