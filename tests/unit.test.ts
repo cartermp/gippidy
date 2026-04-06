@@ -218,6 +218,11 @@ test('renderMarkdown: neutralizes javascript: links', () => {
   assert.ok(!html.includes('javascript:'), `javascript: URL should be removed, got: ${html}`);
 });
 
+test('renderMarkdown: neutralizes data:text/html links', () => {
+  const html = renderMarkdown('[click](data:text/html,<script>alert(1)</script>)');
+  assert.ok(!html.includes('data:text/html'), `data:text/html URL should be removed, got: ${html}`);
+});
+
 // ── parseStreamError ─────────────────────────────────────────────────────────
 
 test('parseStreamError: 429 → rate limit message', () => {

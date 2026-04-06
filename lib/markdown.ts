@@ -24,10 +24,10 @@ marked.use({
     },
   },
 
-  // Neutralize javascript: URLs in links and images before rendering.
+  // Neutralize javascript: and data: URLs in links and images before rendering.
   walkTokens(token) {
     if ((token.type === 'link' || token.type === 'image') && token.href) {
-      if (/^javascript:/i.test(token.href.trim())) token.href = '#';
+      if (/^(?:javascript:|data:text\/html)/i.test(token.href.trim())) token.href = '#';
     }
   },
 });
