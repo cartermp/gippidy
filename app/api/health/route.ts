@@ -7,6 +7,6 @@ export async function GET() {
     await query('SELECT 1');
     return Response.json({ ok: true });
   } catch (err) {
-    return Response.json({ ok: false, error: String(err) }, { status: 503 });
+    return Response.json({ ok: false, error: 'database unavailable' }, { status: 503 });
   }
 }
