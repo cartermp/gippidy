@@ -6,9 +6,7 @@ import { query } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
 import ForkButton from './fork-button';
 import logger from '@/lib/log';
-
-type Image = { mimeType: string; data: string };
-type Message = { role: string; content: string; images?: Image[] };
+import type { Message } from '@/lib/chat';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;

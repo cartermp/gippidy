@@ -1,6 +1,7 @@
-type Image = { data: string; mimeType: string };
-type Pdf   = { name: string; data: string };  // base64, application/pdf
-export type Message = { role: string; content: string; images?: Image[]; pdfs?: Pdf[] };
+export type Role    = 'user' | 'assistant';
+export type Image   = { data: string; mimeType: string };        // base64, no prefix
+export type Pdf     = { name: string; data: string };            // base64, application/pdf
+export type Message = { role: Role; content: string; html?: string; images?: Image[]; pdfs?: Pdf[] };
 export type Provider = 'openai' | 'anthropic' | 'google';
 
 export function getProvider(model: string): Provider {

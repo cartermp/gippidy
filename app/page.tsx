@@ -4,14 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { signOut } from 'next-auth/react';
 import { renderMarkdown } from '@/lib/markdown';
 import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
-
-type Role = 'user' | 'assistant';
-type Image       = { data: string; mimeType: string };        // base64, no prefix
-type PendingFile = { name: string; content: string };         // text/code files
-type PendingPdf  = { name: string; data: string };            // base64 PDF
-type Message     = { role: Role; content: string; html?: string; images?: Image[]; pdfs?: PendingPdf[] };
-
 import { MODELS } from '@/lib/models';
+import type { Role, Image, Pdf, Message } from '@/lib/chat';
+
+type PendingFile = { name: string; content: string };         // text/code files
+type PendingPdf  = Pdf;
 
 const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
