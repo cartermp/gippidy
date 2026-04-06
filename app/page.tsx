@@ -103,6 +103,11 @@ export default function Home() {
   const historyIndexRef    = useRef(-1);
   const draftInputRef      = useRef('');
 
+  // Resolves when the crypto key has been loaded from/saved to the server.
+  // loadHistory awaits this so it never races against the settings fetch.
+  const keyResolveRef = useRef<(() => void) | null>(null);
+  const keyReadyRef   = useRef<Promise<void>>(new Promise(resolve => { keyResolveRef.current = resolve; }));
+
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
     if (saved) setModel(saved);
@@ -115,6 +120,7 @@ export default function Home() {
         // Load or create the encryption key (shared across all deployments via DB)
         const { key, jwk } = await getOrCreateKey(keyJwk ?? null);
         cryptoKeyRef.current = key;
+        keyResolveRef.current?.();
         if (jwk) {
           // New key (or migrated from localStorage) — save to server so all deployments use it
           fetch('/api/settings', {
@@ -230,8 +236,8 @@ export default function Home() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const key = cryptoKeyRef.current;
-      if (!key) { console.error('encryption key not ready'); setHistoryItems([]); return; }
+      await keyReadyRef.current;
+      const key = cryptoKeyRef.current!;
       const res  = await fetch('/api/history');
       if (!res.ok) { console.error('history fetch failed', res.status, await res.text()); setHistoryItems([]); return; }
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
