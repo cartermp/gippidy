@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --turbo",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "test": "node --experimental-strip-types --test tests/unit.test.ts"
   },
