@@ -11,13 +11,7 @@ const RATE_WINDOW_MS = 60_000;
 const TIMEOUT_MS     = 60_000;
 const MAX_MESSAGES   = 200;
 
-const ALLOWED_MODELS = new Set([
-  'gpt-5.4',
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
-]);
+import { ALLOWED_MODELS } from '@/lib/models';
 
 async function checkRateLimit(email: string): Promise<boolean> {
   const bucket = new Date(Math.floor(Date.now() / RATE_WINDOW_MS) * RATE_WINDOW_MS).toISOString();

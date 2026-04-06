@@ -11,13 +11,7 @@ type PendingFile = { name: string; content: string };         // text/code files
 type PendingPdf  = { name: string; data: string };            // base64 PDF
 type Message     = { role: Role; content: string; html?: string; images?: Image[]; pdfs?: PendingPdf[] };
 
-const MODELS = [
-  { id: 'gpt-5.4',                label: 'GPT-5.4',           provider: 'openai' },
-  { id: 'claude-opus-4-6',        label: 'Claude Opus 4.6',   provider: 'anthropic' },
-  { id: 'claude-sonnet-4-6',      label: 'Claude Sonnet 4.6', provider: 'anthropic' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro',    provider: 'google' },
-  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash',    provider: 'google' },
-];
+import { MODELS } from '@/lib/models';
 
 const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
