@@ -299,8 +299,17 @@ header select option {
   align-items: flex-start;
 }
 
+.msg-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.message:hover .msg-actions { opacity: 1; }
+
 .msg-copy-btn {
-  flex-shrink: 0;
   background: transparent;
   color: var(--dim);
   border: 1px solid transparent;
@@ -308,17 +317,13 @@ header select option {
   font-size: 11px;
   padding: 2px 6px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
   white-space: nowrap;
-  align-self: flex-start;
 }
 
-.message:hover .msg-copy-btn { opacity: 1; }
+.message:hover .msg-copy-btn { }
 .msg-copy-btn:hover { color: var(--green); border-color: var(--border); }
 
 .msg-retry-btn {
-  flex-shrink: 0;
   background: transparent;
   color: var(--dim);
   border: 1px solid transparent;
@@ -326,13 +331,10 @@ header select option {
   font-size: 11px;
   padding: 2px 6px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
   white-space: nowrap;
-  align-self: flex-start;
 }
 
-.message:hover .msg-retry-btn { opacity: 1; }
+.message:hover .msg-retry-btn { }
 .msg-retry-btn:hover { color: var(--fg); border-color: var(--border); }
 
 .saved-flash {
@@ -342,7 +344,6 @@ header select option {
 }
 
 .msg-edit-btn {
-  flex-shrink: 0;
   background: transparent;
   color: var(--dim);
   border: 1px solid transparent;
@@ -350,13 +351,10 @@ header select option {
   font-size: 11px;
   padding: 2px 6px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
   white-space: nowrap;
-  align-self: flex-start;
 }
 
-.message:hover .msg-edit-btn { opacity: 1; }
+.message:hover .msg-edit-btn { }
 .msg-edit-btn:hover { color: var(--blue); border-color: var(--border); }
 
 .edit-form {

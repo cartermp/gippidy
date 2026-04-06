@@ -681,18 +681,22 @@ export default function Home() {
                     ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
                     : msg.content && <span>{msg.content}</span>
                 )}
+                {editingIndex === null && (
+                  <div className="msg-actions">
+                    {msg.role === 'assistant' && (
+                      <button className="msg-copy-btn" onClick={() => copyMessage(msg.content, i)}>
+                        {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
+                      </button>
+                    )}
+                    {msg.role === 'assistant' && !streaming && i === messages.length - 1 && (
+                      <button className="msg-retry-btn" onClick={handleRetry}>[RETRY]</button>
+                    )}
+                    {msg.role === 'user' && !streaming && (
+                      <button className="msg-edit-btn" onClick={() => startEdit(i)}>[EDIT]</button>
+                    )}
+                  </div>
+                )}
               </div>
-              {msg.role === 'assistant' && editingIndex === null && (
-                <button className="msg-copy-btn" onClick={() => copyMessage(msg.content, i)}>
-                  {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
-                </button>
-              )}
-              {msg.role === 'assistant' && editingIndex === null && !streaming && i === messages.length - 1 && (
-                <button className="msg-retry-btn" onClick={handleRetry}>[RETRY]</button>
-              )}
-              {msg.role === 'user' && editingIndex === null && !streaming && (
-                <button className="msg-edit-btn" onClick={() => startEdit(i)}>[EDIT]</button>
-              )}
             </div>
           ))}
           {streaming && (
