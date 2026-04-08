@@ -676,7 +676,7 @@ export default function Home() {
                 ) : (
                   msg.role === 'assistant'
                     ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
-                    : msg.content && <span>{msg.content}</span>
+                    : msg.content && <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
                 )}
                 {editingIndex === null && (
                   <div className="msg-actions">

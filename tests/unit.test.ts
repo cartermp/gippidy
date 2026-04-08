@@ -223,6 +223,15 @@ test('renderMarkdown: neutralizes data:text/html links', () => {
   assert.ok(!html.includes('data:text/html'), `data:text/html URL should be removed, got: ${html}`);
 });
 
+test('renderMarkdown: user message with mixed text and fenced code block renders both', () => {
+  // Simulates a user typing prose followed by a code snippet
+  const html = renderMarkdown('here is some code:\n\n```typescript\nconst x: number = 1;\n```');
+  assert.ok(html.includes('<p>'), `prose should be in a paragraph, got: ${html}`);
+  assert.ok(html.includes('language-typescript'), `code fence should be highlighted as typescript, got: ${html}`);
+  assert.ok(html.includes('hljs'), `hljs class should be present, got: ${html}`);
+  assert.ok(html.includes('code-block'), `copy button wrapper should be present, got: ${html}`);
+});
+
 // ── parseStreamError ─────────────────────────────────────────────────────────
 
 test('parseStreamError: 429 → rate limit message', () => {
