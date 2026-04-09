@@ -112,7 +112,8 @@ export default function Home() {
     const saved = localStorage.getItem(MODEL_KEY);
     if (saved) setModel(saved);
 
-    fetch('/api/settings')
+    const ac = new AbortController();
+    fetch('/api/settings', { signal: ac.signal })
       .then(r => r.json())
       .then(async ({ systemPrompt, saveHistory: sh, keyJwk }) => {
         if (systemPrompt) setSystemPrompt(systemPrompt);
@@ -130,7 +131,7 @@ export default function Home() {
           }).catch(() => {});
         }
       })
-      .catch(() => { keyResolveRef.current?.(); });
+      .catch(e => { if (e.name !== 'AbortError') keyResolveRef.current?.(); });
 
     const fork = localStorage.getItem('gippidy-fork');
     if (fork) {
@@ -142,6 +143,7 @@ export default function Home() {
       localStorage.removeItem('gippidy-fork');
       chatIdRef.current = null; // fork always starts a new history entry
     }
+    return () => ac.abort();
   }, []);
 
   useEffect(() => {

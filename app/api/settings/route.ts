@@ -3,9 +3,10 @@ import { query } from '@/lib/db';
 import logger from '@/lib/log';
 
 export async function GET() {
+  const start = Date.now();
   const session = await auth();
   if (!session?.user?.email) {
-    logger.warn({ route: 'settings.get' }, 'unauthenticated');
+    logger.warn({ route: 'settings.get', durationMs: Date.now() - start }, 'unauthenticated');
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -14,7 +15,13 @@ export async function GET() {
     [session.user.email],
   );
   const row = result.rows[0];
-  logger.info({ user: session.user.email, hasKey: !!row?.key_jwk }, 'settings.get');
+  logger.info({
+    user: session.user.email,
+    durationMs: Date.now() - start,
+    hasKey: !!row?.key_jwk,
+    saveHistory: row?.save_history ?? false,
+    newUser: !row,
+  }, 'settings.get');
   return Response.json({
     systemPrompt: row?.system_prompt ?? '',
     saveHistory:  row?.save_history  ?? false,
@@ -23,9 +30,10 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const start = Date.now();
   const session = await auth();
   if (!session?.user?.email) {
-    logger.warn({ route: 'settings.put' }, 'unauthenticated');
+    logger.warn({ route: 'settings.put', durationMs: Date.now() - start }, 'unauthenticated');
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -38,6 +46,11 @@ export async function PUT(req: Request) {
        key_jwk       = COALESCE(EXCLUDED.key_jwk, user_settings.key_jwk)`,
     [session.user.email, systemPrompt ?? '', saveHistory ?? false, keyJwk ?? null],
   );
-  logger.info({ user: session.user.email, saveHistory: saveHistory ?? false }, 'settings.put');
+  logger.info({
+    user: session.user.email,
+    durationMs: Date.now() - start,
+    saveHistory: saveHistory ?? false,
+    hasKey: !!keyJwk,
+  }, 'settings.put');
   return new Response(null, { status: 204 });
 }

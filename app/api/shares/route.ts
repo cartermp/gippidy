@@ -4,13 +4,17 @@ import { query } from '@/lib/db';
 import logger from '@/lib/log';
 
 export async function POST(req: NextRequest) {
+  const start = Date.now();
   const session = await auth();
   if (!session?.user?.email) {
+    logger.warn({ durationMs: Date.now() - start }, 'share.create.unauthenticated');
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const body = await req.json();
-  if (JSON.stringify(body).length > 500_000) {
+  const bodyBytes = JSON.stringify(body).length;
+  if (bodyBytes > 500_000) {
+    logger.warn({ user: session.user.email, bodyBytes, durationMs: Date.now() - start }, 'share.create.too_large');
     return Response.json(
       { error: 'Chat too large to share. Try removing image attachments first.' },
       { status: 413 },
@@ -24,6 +28,6 @@ export async function POST(req: NextRequest) {
     [id, session.user.email, model, systemPrompt || null, JSON.stringify(messages)],
   );
 
-  logger.info({ user: session.user.email, id, model, msgs: messages.length }, 'share.create');
+  logger.info({ user: session.user.email, id, model, msgs: messages.length, bodyBytes, durationMs: Date.now() - start }, 'share.create');
   return Response.json({ id });
 }
