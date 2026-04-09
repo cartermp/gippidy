@@ -235,20 +235,23 @@ export default function Home() {
 
   const loadHistory = async () => {
     setHistoryLoading(true);
+    setHistoryItems([]);
     try {
       await keyReadyRef.current;
       const key = cryptoKeyRef.current!;
       const res  = await fetch('/api/history');
-      if (!res.ok) { console.error('history fetch failed', res.status, await res.text()); setHistoryItems([]); return; }
+      if (!res.ok) { console.error('history fetch failed', res.status, await res.text()); return; }
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
-      const results = await Promise.allSettled(rows.map(async row => {
-        const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
-        return { id: row.id, updatedAt: row.updated_at, ...data };
-      }));
-      const items = results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
-      const failed = results.filter(r => r.status === 'rejected').length;
+      let failed = 0;
+      for (const row of rows) {
+        try {
+          const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
+          setHistoryItems(prev => [...prev, { id: row.id, updatedAt: row.updated_at, ...data }]);
+        } catch {
+          failed++;
+        }
+      }
       if (failed) console.warn(`${failed} history row(s) failed to decrypt`);
-      setHistoryItems(items);
     } catch (e) {
       console.error('loadHistory error', e);
       setHistoryItems([]);
@@ -619,7 +622,7 @@ export default function Home() {
                   />
                 </div>
               )}
-              {historyLoading && <div className="empty">decrypting…</div>}
+              {historyLoading && historyItems.length === 0 && <div className="empty">decrypting…</div>}
               {!historyLoading && historyItems.length === 0 && (
                 <div className="empty">no saved chats yet</div>
               )}
