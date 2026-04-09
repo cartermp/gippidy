@@ -13,10 +13,12 @@ export async function GET() {
     'SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1',
     [session.user.email],
   );
+  const row = result.rows[0];
+  logger.info({ user: session.user.email, hasKey: !!row?.key_jwk }, 'settings.get');
   return Response.json({
-    systemPrompt: result.rows[0]?.system_prompt ?? '',
-    saveHistory:  result.rows[0]?.save_history  ?? false,
-    keyJwk:       result.rows[0]?.key_jwk       ?? null,
+    systemPrompt: row?.system_prompt ?? '',
+    saveHistory:  row?.save_history  ?? false,
+    keyJwk:       row?.key_jwk       ?? null,
   });
 }
 
