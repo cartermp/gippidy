@@ -250,8 +250,7 @@ export default function Home() {
       if (!res.ok) { console.error('[history] fetch failed', res.status, await res.text()); return; }
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
       let failed = 0;
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
+      await Promise.allSettled(rows.map(async (row, i) => {
         try {
           const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
           setHistoryItems(prev => [...prev, { id: row.id, updatedAt: row.updated_at, ...data }]);
@@ -259,7 +258,7 @@ export default function Home() {
           failed++;
           console.warn(`[history] decrypt failed for row ${i + 1}/${rows.length} (${row.id}):`, e);
         }
-      }
+      }));
       if (failed) console.warn(`[history] ${failed}/${rows.length} rows failed to decrypt`);
     } catch (e) {
       console.error('[history] loadHistory error', e);
