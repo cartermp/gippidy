@@ -236,27 +236,37 @@ export default function Home() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     setHistoryItems([]);
+    console.log('[history] loadHistory start');
     try {
+      console.log('[history] awaiting key...');
       await keyReadyRef.current;
       const key = cryptoKeyRef.current;
-      if (!key) { console.error('loadHistory: crypto key unavailable'); return; }
+      console.log('[history] key ready:', !!key);
+      if (!key) { console.error('[history] crypto key unavailable'); return; }
+      console.log('[history] fetching rows...');
       const res  = await fetch('/api/history');
-      if (!res.ok) { console.error('history fetch failed', res.status, await res.text()); return; }
+      console.log('[history] fetch status:', res.status);
+      if (!res.ok) { console.error('[history] fetch failed', res.status, await res.text()); return; }
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
+      console.log('[history] rows received:', rows.length);
       let failed = 0;
-      for (const row of rows) {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
         try {
           const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
           setHistoryItems(prev => [...prev, { id: row.id, updatedAt: row.updated_at, ...data }]);
-        } catch {
+          console.log(`[history] decrypted ${i + 1}/${rows.length}:`, data.title);
+        } catch (e) {
           failed++;
+          console.warn(`[history] decrypt failed for row ${i + 1}/${rows.length} (${row.id}):`, e);
         }
       }
-      if (failed) console.warn(`${failed} history row(s) failed to decrypt`);
+      console.log('[history] done. decrypted:', rows.length - failed, 'failed:', failed);
     } catch (e) {
-      console.error('loadHistory error', e);
+      console.error('[history] loadHistory error', e);
       setHistoryItems([]);
     } finally {
+      console.log('[history] setting historyLoading=false');
       setHistoryLoading(false);
     }
   };
