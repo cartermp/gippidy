@@ -130,7 +130,7 @@ export default function Home() {
           }).catch(() => {});
         }
       })
-      .catch(() => {});
+      .catch(() => { keyResolveRef.current?.(); });
 
     const fork = localStorage.getItem('gippidy-fork');
     if (fork) {
@@ -238,7 +238,8 @@ export default function Home() {
     setHistoryItems([]);
     try {
       await keyReadyRef.current;
-      const key = cryptoKeyRef.current!;
+      const key = cryptoKeyRef.current;
+      if (!key) { console.error('loadHistory: crypto key unavailable'); return; }
       const res  = await fetch('/api/history');
       if (!res.ok) { console.error('history fetch failed', res.status, await res.text()); return; }
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
