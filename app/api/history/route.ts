@@ -11,7 +11,7 @@ export async function GET() {
   }
 
   const result = await query(
-    'SELECT id, iv, ciphertext, updated_at FROM chat_histories WHERE user_email = $1 ORDER BY updated_at DESC',
+    'SELECT id, iv, ciphertext, updated_at FROM chat_histories WHERE user_email = $1 ORDER BY updated_at DESC LIMIT 50',
     [session.user.email],
   );
   const rows = result.rows;
