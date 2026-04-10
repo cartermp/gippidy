@@ -24,7 +24,7 @@ export async function getOrCreateKey(
   }
 
   // Migration: if the old per-browser localStorage key exists, promote it to server
-  const localJwk = typeof localStorage !== 'undefined' ? localStorage.getItem('gippidy-key') : null;
+  const localJwk = (() => { try { return localStorage.getItem('gippidy-key'); } catch { return null; } })();
   if (localJwk) {
     const key = await crypto.subtle.importKey('jwk', JSON.parse(localJwk), ALG, true, ['encrypt', 'decrypt']);
     return { key, jwk: localJwk }; // caller saves this to server

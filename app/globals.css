@@ -412,6 +412,10 @@ header select option {
   min-width: 0;
 }
 
+.stream-content {
+  white-space: pre-wrap;
+}
+
 .message.user .content      { color: var(--fg); }
 .message.assistant .content { color: #e0e0e0; }
 

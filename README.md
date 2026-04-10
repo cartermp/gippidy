@@ -17,6 +17,7 @@ Create a `.env.local` file at the repo root:
 
 ```
 # Google OAuth (https://console.cloud.google.com)
+# GOOGLE_* is documented here; AUTH_GOOGLE_* also works with NextAuth v5
 GOOGLE_ID=...
 GOOGLE_SECRET=...
 
@@ -84,6 +85,7 @@ Add your production Vercel URL to the authorized redirect URIs in Google Cloud C
 - **Shared chats** — generate a shareable read-only URL with OG image preview; authenticated users can fork the chat to continue it
 - **Google OAuth** — restricted to a configurable allowlist of emails
 - **Health endpoint** — `GET /api/health` checks DB connectivity; suitable for uptime monitors
+- **Observability** — API responses include `X-Request-Id`, and the app emits structured server/client diagnostics without logging plaintext chat history
 
 ## Scripts
 

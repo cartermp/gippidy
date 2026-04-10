@@ -3,15 +3,14 @@ import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, p
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
 import logger from '@/lib/log';
+import { getRequestId, PRIVATE_NO_STORE, readContentLength, textResponse } from '@/lib/request';
+import { LIMITS, validateChatRequest } from '@/lib/validation';
 
 export const runtime = 'nodejs';
 
 const RATE_LIMIT     = 20;
 const RATE_WINDOW_MS = 60_000;
 const TIMEOUT_MS     = 60_000;
-const MAX_MESSAGES   = 200;
-
-import { ALLOWED_MODELS } from '@/lib/models';
 
 async function checkRateLimit(email: string): Promise<boolean> {
   const bucket = new Date(Math.floor(Date.now() / RATE_WINDOW_MS) * RATE_WINDOW_MS).toISOString();
@@ -27,6 +26,34 @@ async function checkRateLimit(email: string): Promise<boolean> {
   return result.rows[0].count <= RATE_LIMIT;
 }
 
+function chatHeaders(requestId: string): HeadersInit {
+  return {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': PRIVATE_NO_STORE,
+    'X-Request-Id': requestId,
+  };
+}
+
+function getUpstreamRequestId(response: Response): string | null {
+  return response.headers.get('anthropic-request-id')
+    ?? response.headers.get('x-request-id')
+    ?? response.headers.get('request-id');
+}
+
+function summarizeMessages(messages: Message[]) {
+  let promptChars = 0;
+  let imageCount = 0;
+  let pdfCount = 0;
+
+  for (const message of messages) {
+    promptChars += message.content.length;
+    imageCount += message.images?.length ?? 0;
+    pdfCount += message.pdfs?.length ?? 0;
+  }
+
+  return { promptChars, imageCount, pdfCount };
+}
+
 // Anthropic multi-turn loop for web search.
 // Each tool round is non-streaming (collect tool_use, return tool_result).
 // Final text is enqueued in one shot — client sees it after the search completes.
@@ -36,6 +63,7 @@ async function anthropicWebSearch(
   systemPrompt: string | undefined,
   model: string,
   signal: AbortSignal,
+  requestId: string,
 ): Promise<Response> {
   const headers = {
     'x-api-key': apiKey,
@@ -60,7 +88,7 @@ async function anthropicWebSearch(
       signal,
     });
 
-    if (!res.ok) return new Response(await res.text(), { status: res.status });
+    if (!res.ok) return textResponse(await res.text(), { status: res.status }, { requestId, cacheControl: PRIVATE_NO_STORE });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: { content: any[]; stop_reason: string } = await res.json();
@@ -82,7 +110,7 @@ async function anthropicWebSearch(
           controller.close();
         },
       });
-      return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      return new Response(stream, { headers: chatHeaders(requestId) });
     }
 
     // Append assistant turn + tool results and loop
@@ -101,62 +129,58 @@ async function anthropicWebSearch(
     ];
   }
 
-  return new Response('Web search exceeded max rounds', { status: 500 });
+  return textResponse('Web search exceeded max rounds', { status: 500 }, { requestId, cacheControl: PRIVATE_NO_STORE });
 }
 
 export async function POST(req: NextRequest) {
   const t = Date.now();
-  const ctx: Record<string, string | number | boolean> = {};
+  const requestId = getRequestId(req);
+  const ctx: Record<string, string | number | boolean | null> = { requestId };
 
   try {
+    const authStart = Date.now();
+    const session = await auth();
+    ctx.authMs = Date.now() - authStart;
+    if (!session?.user?.email) {
+      ctx.status = 401; ctx.error = 'unauthenticated';
+      return textResponse('Unauthorized', { status: 401 }, { requestId, cacheControl: PRIVATE_NO_STORE });
+    }
+    ctx.user = session.user.email;
 
-  const session = await auth();
-  if (!session?.user?.email) {
-    ctx.status = 401; ctx.error = 'unauthenticated';
-    return new Response('Unauthorized', { status: 401 });
-  }
-  ctx.user = session.user.email;
+    const contentLength = readContentLength(req);
+    if (contentLength !== null) ctx.requestBytes = contentLength;
+    if (contentLength !== null && contentLength > LIMITS.chatBodyBytes) {
+      ctx.status = 413; ctx.error = 'request_too_large';
+      return textResponse('Request too large', { status: 413 }, { requestId, cacheControl: PRIVATE_NO_STORE });
+    }
 
-  const allowed = await checkRateLimit(session.user.email);
-  if (!allowed) {
-    ctx.status = 429;
-    return new Response('Rate limit exceeded', { status: 429 });
-  }
+    const rateLimitStart = Date.now();
+    const allowed = await checkRateLimit(session.user.email);
+    ctx.rateLimitMs = Date.now() - rateLimitStart;
+    if (!allowed) {
+      ctx.status = 429;
+      return textResponse('Rate limit exceeded', { status: 429 }, { requestId, cacheControl: PRIVATE_NO_STORE });
+    }
 
-  const body = await req.json() as {
-    messages: Message[];
-    model: string;
-    systemPrompt?: string;
-    webSearch?: boolean;
-  };
-  const { messages, model, systemPrompt, webSearch } = body;
+    const parsed = validateChatRequest(await req.json());
+    if (!parsed.ok) {
+      ctx.status = parsed.status;
+      ctx.error = parsed.error;
+      return textResponse(parsed.error, { status: parsed.status }, { requestId, cacheControl: PRIVATE_NO_STORE });
+    }
 
-  if (!Array.isArray(messages) || messages.length === 0) {
-    ctx.status = 400; ctx.error = 'invalid_messages';
-    return new Response('Invalid messages', { status: 400 });
-  }
-  if (messages.length > MAX_MESSAGES) {
-    ctx.status = 400; ctx.error = 'too_many_messages';
-    return new Response(`Too many messages (max ${MAX_MESSAGES})`, { status: 400 });
-  }
-  if (!ALLOWED_MODELS.has(model)) {
-    ctx.status = 400; ctx.error = 'invalid_model';
-    return new Response(`Unknown model: ${model}`, { status: 400 });
-  }
-  if (systemPrompt !== undefined && typeof systemPrompt !== 'string') {
-    ctx.status = 400; ctx.error = 'invalid_system_prompt';
-    return new Response('Invalid systemPrompt', { status: 400 });
-  }
-  if (webSearch !== undefined && typeof webSearch !== 'boolean') {
-    ctx.status = 400; ctx.error = 'invalid_web_search';
-    return new Response('Invalid webSearch', { status: 400 });
-  }
+    const { messages, model, systemPrompt, webSearch } = parsed.value;
 
   const provider = getProvider(model);
   ctx.model = model;
   ctx.provider = provider;
   ctx.msgs = messages.length;
+  ctx.systemPromptChars = systemPrompt?.length ?? 0;
   if (webSearch) ctx.webSearch = true;
+  const summary = summarizeMessages(messages);
+  ctx.promptChars = summary.promptChars;
+  ctx.images = summary.imageCount;
+  ctx.pdfs = summary.pdfCount;
 
   const apiKey =
     (provider === 'openai'    ? process.env.OPENAI_API_KEY               : undefined) ||
@@ -165,13 +189,15 @@ export async function POST(req: NextRequest) {
 
   if (!apiKey) {
     ctx.status = 401; ctx.error = `no_api_key`;
-    return new Response(`No API key for ${provider}`, { status: 401 });
+    return textResponse(`No API key for ${provider}`, { status: 401 }, { requestId, cacheControl: PRIVATE_NO_STORE });
   }
 
-  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(TIMEOUT_MS)]);
+  const timeoutSignal = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = AbortSignal.any([req.signal, timeoutSignal]);
 
   // ── Google ───────────────────────────────────────────────────────────────
   if (provider === 'google') {
+    const upstreamStartedAt = Date.now();
     const upstream = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
       {
@@ -188,16 +214,26 @@ export async function POST(req: NextRequest) {
 
     if (!upstream.ok) {
       ctx.status = upstream.status; ctx.error = 'upstream_error';
-      return new Response(await upstream.text(), { status: upstream.status });
+      ctx.upstreamConnectMs = Date.now() - upstreamStartedAt;
+      return textResponse(await upstream.text(), { status: upstream.status }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
 
     ctx.status = 200;
+    ctx.upstreamConnectMs = Date.now() - upstreamStartedAt;
+    ctx.upstreamStatus = upstream.status;
+    const upstreamRequestId = getUpstreamRequestId(upstream);
+    if (upstreamRequestId) ctx.upstreamRequestId = upstreamRequestId;
     const stream = new ReadableStream({
       async start(controller) {
         const reader  = upstream.body!.getReader();
         const decoder = new TextDecoder();
         const encoder = new TextEncoder();
         let buffer    = '';
+        let firstByteMs: number | null = null;
+        let outputChars = 0;
+        let streamError: string | null = null;
+        let shouldClose = true;
+        const streamStartedAt = Date.now();
         try {
           while (true) {
             const { done, value } = await reader.read();
@@ -210,21 +246,40 @@ export async function POST(req: NextRequest) {
               const data = line.slice(6).trim();
               if (!data) continue;
               const text = parseGeminiChunk(data);
-              if (text) controller.enqueue(encoder.encode(text));
+              if (!text) continue;
+              if (firstByteMs === null) firstByteMs = Date.now() - t;
+              outputChars += text.length;
+              controller.enqueue(encoder.encode(text));
             }
           }
+        } catch (error) {
+          shouldClose = false;
+          streamError = String(error).slice(0, 200);
+          controller.error(error);
         } finally {
-          controller.close();
+          if (shouldClose) controller.close();
+          const fields = {
+            ...ctx,
+            firstByteMs,
+            streamDurationMs: Date.now() - streamStartedAt,
+            outputChars,
+            clientAborted: req.signal.aborted,
+            timedOut: timeoutSignal.aborted,
+            streamError,
+          };
+          if (streamError && !req.signal.aborted && !timeoutSignal.aborted) logger.error(fields, 'chat.stream');
+          else if (req.signal.aborted || timeoutSignal.aborted) logger.warn(fields, 'chat.stream');
+          else logger.info(fields, 'chat.stream');
         }
       },
     });
 
-    return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    return new Response(stream, { headers: chatHeaders(requestId) });
   }
 
   // ── Anthropic with web search: multi-turn loop ───────────────────────────
   if (provider === 'anthropic' && webSearch) {
-    const res = await anthropicWebSearch(apiKey, messages, systemPrompt, model, signal);
+    const res = await anthropicWebSearch(apiKey, messages, systemPrompt, model, signal, requestId);
     ctx.status = res.status;
     return res;
   }
@@ -233,6 +288,7 @@ export async function POST(req: NextRequest) {
   // Chat Completions only supports 'function'/'custom' tool types.
   // Web search requires the Responses API (/v1/responses) with a different SSE format.
   if (provider === 'openai' && webSearch) {
+    const upstreamStartedAt = Date.now();
     const upstream = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -248,10 +304,15 @@ export async function POST(req: NextRequest) {
 
     if (!upstream.ok) {
       ctx.status = upstream.status; ctx.error = 'upstream_error';
-      return new Response(await upstream.text(), { status: upstream.status });
+      ctx.upstreamConnectMs = Date.now() - upstreamStartedAt;
+      return textResponse(await upstream.text(), { status: upstream.status }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
 
     ctx.status = 200;
+    ctx.upstreamConnectMs = Date.now() - upstreamStartedAt;
+    ctx.upstreamStatus = upstream.status;
+    const upstreamRequestId = getUpstreamRequestId(upstream);
+    if (upstreamRequestId) ctx.upstreamRequestId = upstreamRequestId;
     const stream = new ReadableStream({
       async start(controller) {
         const reader  = upstream.body!.getReader();
@@ -259,6 +320,11 @@ export async function POST(req: NextRequest) {
         const encoder = new TextEncoder();
         let buffer    = '';
         let curEvent  = '';
+        let firstByteMs: number | null = null;
+        let outputChars = 0;
+        let streamError: string | null = null;
+        let shouldClose = true;
+        const streamStartedAt = Date.now();
 
         try {
           while (true) {
@@ -274,20 +340,40 @@ export async function POST(req: NextRequest) {
               if (line === '')                      { curEvent = ''; continue; }
               if (!line.startsWith('data: '))      continue;
               const out = parseOpenAIResponsesChunk(curEvent, line.slice(6));
-              if (out) controller.enqueue(encoder.encode(out));
+              if (!out) continue;
+              if (firstByteMs === null) firstByteMs = Date.now() - t;
+              outputChars += out.replace(/\0/g, '').length;
+              controller.enqueue(encoder.encode(out));
             }
           }
+        } catch (error) {
+          shouldClose = false;
+          streamError = String(error).slice(0, 200);
+          controller.error(error);
         } finally {
-          controller.close();
+          if (shouldClose) controller.close();
+          const fields = {
+            ...ctx,
+            firstByteMs,
+            streamDurationMs: Date.now() - streamStartedAt,
+            outputChars,
+            clientAborted: req.signal.aborted,
+            timedOut: timeoutSignal.aborted,
+            streamError,
+          };
+          if (streamError && !req.signal.aborted && !timeoutSignal.aborted) logger.error(fields, 'chat.stream');
+          else if (req.signal.aborted || timeoutSignal.aborted) logger.warn(fields, 'chat.stream');
+          else logger.info(fields, 'chat.stream');
         }
       },
     });
 
-    return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    return new Response(stream, { headers: chatHeaders(requestId) });
   }
 
   // ── OpenAI / Anthropic: SSE ──────────────────────────────────────────────
   let upstream: Response;
+  const upstreamStartedAt = Date.now();
 
   if (provider === 'openai') {
     upstream = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -322,16 +408,26 @@ export async function POST(req: NextRequest) {
   if (!upstream.ok) {
     const body = await upstream.text();
     ctx.status = upstream.status; ctx.error = 'upstream_error';
-    return new Response(body, { status: upstream.status });
+    ctx.upstreamConnectMs = Date.now() - upstreamStartedAt;
+    return textResponse(body, { status: upstream.status }, { requestId, cacheControl: PRIVATE_NO_STORE });
   }
 
   ctx.status = 200;
+  ctx.upstreamConnectMs = Date.now() - upstreamStartedAt;
+  ctx.upstreamStatus = upstream.status;
+  const upstreamRequestId = getUpstreamRequestId(upstream);
+  if (upstreamRequestId) ctx.upstreamRequestId = upstreamRequestId;
   const stream = new ReadableStream({
     async start(controller) {
       const reader  = upstream.body!.getReader();
       const decoder = new TextDecoder();
       const encoder = new TextEncoder();
       let buffer    = '';
+      let firstByteMs: number | null = null;
+      let outputChars = 0;
+      let streamError: string | null = null;
+      let shouldClose = true;
+      const streamStartedAt = Date.now();
 
       try {
         while (true) {
@@ -350,21 +446,40 @@ export async function POST(req: NextRequest) {
             const text = provider === 'openai'
               ? parseOpenAIChunk(data)
               : parseAnthropicChunk(data);
-            if (text) controller.enqueue(encoder.encode(text));
+            if (!text) continue;
+            if (firstByteMs === null) firstByteMs = Date.now() - t;
+            outputChars += text.length;
+            controller.enqueue(encoder.encode(text));
           }
         }
+      } catch (error) {
+        shouldClose = false;
+        streamError = String(error).slice(0, 200);
+        controller.error(error);
       } finally {
-        controller.close();
+        if (shouldClose) controller.close();
+        const fields = {
+          ...ctx,
+          firstByteMs,
+          streamDurationMs: Date.now() - streamStartedAt,
+          outputChars,
+          clientAborted: req.signal.aborted,
+          timedOut: timeoutSignal.aborted,
+          streamError,
+        };
+        if (streamError && !req.signal.aborted && !timeoutSignal.aborted) logger.error(fields, 'chat.stream');
+        else if (req.signal.aborted || timeoutSignal.aborted) logger.warn(fields, 'chat.stream');
+        else logger.info(fields, 'chat.stream');
       }
     },
   });
 
-  return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+  return new Response(stream, { headers: chatHeaders(requestId) });
 
   } catch (err) {
     ctx.status = 500;
     ctx.error = String(err).slice(0, 120);
-    throw err;
+    return textResponse('Internal Server Error', { status: 500 }, { requestId, cacheControl: PRIVATE_NO_STORE });
   } finally {
     const fields = { ...ctx, ms: Date.now() - t };
     const status = ctx.status as number | undefined;

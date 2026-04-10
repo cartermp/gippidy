@@ -24,10 +24,11 @@ marked.use({
     },
   },
 
-  // Neutralize javascript: and data: URLs in links and images before rendering.
+  // Neutralize unsafe URLs in links and images before rendering.
   walkTokens(token) {
     if ((token.type === 'link' || token.type === 'image') && token.href) {
-      if (/^(?:javascript:|data:text\/html)/i.test(token.href.trim())) token.href = '#';
+      const href = token.href.trim();
+      if (!/^(?:https?:|mailto:|\/|#|\?|\.\.?\/)/i.test(href)) token.href = '#';
     }
   },
 });
@@ -37,6 +38,6 @@ export function renderMarkdown(text: string): string {
   // Wrap each <pre> in a .code-block and inject a [COPY] button
   return html
     .replace(/<pre>/g,
-      `<div class="code-block"><button class="copy-btn" onclick="navigator.clipboard.writeText(this.nextElementSibling.querySelector('code').textContent);this.textContent='[COPIED!]';setTimeout(()=>this.textContent='[COPY]',2000)">[COPY]</button><pre>`)
+      `<div class="code-block"><button class="copy-btn" type="button" data-copy-code>[COPY]</button><pre>`)
     .replace(/<\/pre>/g, '</pre></div>');
 }

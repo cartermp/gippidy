@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { signOut } from 'next-auth/react';
+import RenderedMarkdown from './rendered-markdown';
 import { renderMarkdown } from '@/lib/markdown';
 import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
 import { MODELS } from '@/lib/models';
 import type { Role, Image, Pdf, Message } from '@/lib/chat';
+import { LIMITS } from '@/lib/validation';
 
 type PendingFile = { name: string; content: string };         // text/code files
 type PendingPdf  = Pdf;
@@ -14,6 +16,18 @@ const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
 
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
+
+function withRenderedHtml(message: Message): Message {
+  return message.content ? { ...message, html: renderMarkdown(message.content) } : message;
+}
+
+function withRenderedMessages(messages: Message[]): Message[] {
+  return messages.map(withRenderedHtml);
+}
+
+function stripMessageHtml(messages: Message[]): Array<Omit<Message, 'html'>> {
+  return messages.map(({ html: _html, ...message }) => message);
+}
 
 function parseStreamError(status: number, body: string): string {
   if (status === 429) return '[RATE LIMITED] Wait a moment and try again.';
@@ -107,6 +121,75 @@ export default function Home() {
   // loadHistory awaits this so it never races against the settings fetch.
   const keyResolveRef = useRef<(() => void) | null>(null);
   const keyReadyRef   = useRef<Promise<void>>(new Promise(resolve => { keyResolveRef.current = resolve; }));
+  const systemPromptRef = useRef(systemPrompt);
+  const saveHistoryRef  = useRef(saveHistory);
+
+  useEffect(() => {
+    systemPromptRef.current = systemPrompt;
+  }, [systemPrompt]);
+
+  useEffect(() => {
+    saveHistoryRef.current = saveHistory;
+  }, [saveHistory]);
+
+  useEffect(() => () => {
+    if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
+  }, []);
+
+  const logClientEvent = (
+    event: string,
+    level: 'info' | 'warn' | 'error',
+    details: Record<string, string | number | boolean | null> = {},
+  ) => {
+    const body = JSON.stringify({ event, level, details });
+    if (body.length > LIMITS.clientEventBodyBytes) return;
+    const blob = new Blob([body], { type: 'application/json' });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/client-events', blob);
+      return;
+    }
+    fetch('/api/client-events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  };
+
+  const persistSettings = (overrides: { systemPrompt?: string; saveHistory?: boolean; keyJwk?: string | null }, immediate = false) => {
+    const run = () => {
+      const body = JSON.stringify({
+        systemPrompt: overrides.systemPrompt ?? systemPromptRef.current,
+        saveHistory: overrides.saveHistory ?? saveHistoryRef.current,
+        ...(overrides.keyJwk !== undefined ? { keyJwk: overrides.keyJwk } : {}),
+      });
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
+        .then(res => {
+          if (!res.ok) throw new Error(`settings_put_${res.status}`);
+        })
+        .catch(() => {
+          logClientEvent('settings.persist_failed', 'warn', {
+            hasKey: overrides.keyJwk !== undefined ? Boolean(overrides.keyJwk) : null,
+          });
+        });
+    };
+
+    if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
+    if (immediate) run();
+    else saveSettingsTimer.current = setTimeout(run, 600);
+  };
+
+  const rejectLargeFiles = (files: File[], maxBytes: number, kind: 'image' | 'pdf' | 'text') =>
+    files.filter(file => {
+      if (file.size <= maxBytes) return true;
+      alert(`${file.name} is too large to attach.`);
+      logClientEvent('attachment.rejected', 'warn', { kind, size: file.size });
+      return false;
+    });
 
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
@@ -114,37 +197,41 @@ export default function Home() {
 
     const ac = new AbortController();
     fetch('/api/settings', { signal: ac.signal })
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) throw new Error(`settings_get_${r.status}`);
+        return r.json();
+      })
       .then(async ({ systemPrompt, saveHistory: sh, keyJwk }) => {
-        if (systemPrompt) setSystemPrompt(systemPrompt);
-        if (sh) setSaveHistory(true);
+        setSystemPrompt(systemPrompt ?? '');
+        setSaveHistory(Boolean(sh));
         // Load or create the encryption key (shared across all deployments via DB)
         const { key, jwk } = await getOrCreateKey(keyJwk ?? null);
         cryptoKeyRef.current = key;
         keyResolveRef.current?.();
         if (jwk) {
           // New key (or migrated from localStorage) — save to server so all deployments use it
-          fetch('/api/settings', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ systemPrompt: systemPrompt ?? '', saveHistory: sh ?? false, keyJwk: jwk }),
-          }).catch(() => {});
+          persistSettings({ systemPrompt: systemPrompt ?? '', saveHistory: sh ?? false, keyJwk: jwk }, true);
         }
       })
-      .catch(e => { if (e.name !== 'AbortError') keyResolveRef.current?.(); });
+      .catch(e => {
+        if (e.name !== 'AbortError') {
+          logClientEvent('settings.load_failed', 'error');
+          keyResolveRef.current?.();
+        }
+      });
 
     const fork = localStorage.getItem('gippidy-fork');
     localStorage.removeItem('gippidy-fork');
     if (fork) {
       try {
         const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
-        setMessages(m);
+        setMessages(withRenderedMessages(m));
         setModel(mo);
         localStorage.setItem(MODEL_KEY, mo);
-        if (sp) { setSystemPrompt(sp); }
+        setSystemPrompt(sp ?? '');
         chatIdRef.current = null; // fork always starts a new history entry
       } catch {
-        // Corrupt fork data — silently discard
+        logClientEvent('fork.parse_failed', 'warn');
       }
     }
     return () => ac.abort();
@@ -192,10 +279,14 @@ export default function Home() {
       const res = await fetch('/api/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, model, systemPrompt }),
+        body: JSON.stringify({ messages: stripMessageHtml(messages), model, systemPrompt }),
       });
       if (!res.ok) {
         const { error } = await res.json();
+        logClientEvent('share.create_failed', 'warn', {
+          status: res.status,
+          requestId: res.headers.get('x-request-id'),
+        });
         setShareLabel('[TOO LARGE]');
         setTimeout(() => alert(error), 0);
       } else {
@@ -204,6 +295,7 @@ export default function Home() {
         setShareLabel('[COPIED!]');
       }
     } catch {
+      logClientEvent('share.create_failed', 'error');
       setShareLabel('[ERROR]');
     }
     setTimeout(() => setShareLabel('[SHARE]'), 3000);
@@ -216,14 +308,7 @@ export default function Home() {
 
   const handleSystemChange = (s: string) => {
     setSystemPrompt(s);
-    if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
-    saveSettingsTimer.current = setTimeout(() => {
-      fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt: s, saveHistory }),
-      });
-    }, 600);
+    persistSettings({ systemPrompt: s });
   };
 
   const handleToggleSaveHistory = (val: boolean) => {
@@ -232,11 +317,7 @@ export default function Home() {
       alert('Your encryption key is stored in this browser only.\nClearing browser data will make saved chats permanently unreadable.');
       localStorage.setItem(KEY_WARNED, '1');
     }
-    fetch('/api/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ systemPrompt, saveHistory: val }),
-    });
+    persistSettings({ saveHistory: val }, true);
   };
 
   const loadHistory = async () => {
@@ -249,25 +330,32 @@ export default function Home() {
       await Promise.race([keyReadyRef.current, keyTimeout]);
       const key = cryptoKeyRef.current;
       if (!key) {
-        console.error('[history] key unavailable after wait — settings may have failed or JWK is corrupt');
+        logClientEvent('history.key_unavailable', 'error');
         return;
       }
       const res = await fetch('/api/history');
-      if (!res.ok) { console.error('[history] fetch failed', res.status, await res.text()); return; }
+      if (!res.ok) {
+        logClientEvent('history.fetch_failed', 'error', {
+          status: res.status,
+          requestId: res.headers.get('x-request-id'),
+        });
+        return;
+      }
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
+      const ordered = Array<HistoryItem | null>(rows.length).fill(null);
       let failed = 0;
       await Promise.allSettled(rows.map(async (row, i) => {
         try {
           const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
-          setHistoryItems(prev => [...prev, { id: row.id, updatedAt: row.updated_at, ...data }]);
-        } catch (e) {
+          ordered[i] = { id: row.id, updatedAt: row.updated_at, ...data, messages: withRenderedMessages(data.messages) };
+          setHistoryItems(ordered.filter((item): item is HistoryItem => Boolean(item)));
+        } catch {
           failed++;
-          console.warn(`[history] decrypt failed for row ${i + 1}/${rows.length} (${row.id}):`, e);
         }
       }));
-      if (failed) console.warn(`[history] ${failed}/${rows.length} rows failed to decrypt`);
-    } catch (e) {
-      console.error('[history] loadHistory error', e);
+      if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length });
+    } catch {
+      logClientEvent('history.load_failed', 'error');
       setHistoryItems([]);
     } finally {
       setHistoryLoading(false);
@@ -281,16 +369,23 @@ export default function Home() {
   };
 
   const handleLoadChat = (item: HistoryItem) => {
-    setMessages(item.messages);
+    setMessages(withRenderedMessages(item.messages));
     setModel(item.model);
     localStorage.setItem(MODEL_KEY, item.model);
-    if (item.systemPrompt) setSystemPrompt(item.systemPrompt);
+    setSystemPrompt(item.systemPrompt ?? '');
     chatIdRef.current = item.id;
     setShowHistory(false);
   };
 
   const handleDeleteChat = async (id: string) => {
-    await fetch(`/api/history/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/history/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      logClientEvent('history.delete_failed', 'warn', {
+        status: res.status,
+        requestId: res.headers.get('x-request-id'),
+      });
+      return;
+    }
     setHistoryItems(items => items.filter(i => i.id !== id));
     if (chatIdRef.current === id) chatIdRef.current = null;
   };
@@ -310,14 +405,14 @@ export default function Home() {
 
     if (imageFiles.length === 0) return;
     e.preventDefault();
-    readImageFiles(imageFiles, img => setPendingImages(imgs => [...imgs, img]));
+    readImageFiles(rejectLargeFiles(imageFiles, LIMITS.maxImageBytes, 'image'), img => setPendingImages(imgs => [...imgs, img]));
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const all   = Array.from(e.target.files ?? []);
-    const imgs  = all.filter(f => f.type.startsWith('image/'));
-    const pdfs  = all.filter(f => f.type === 'application/pdf');
-    const texts = all.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf');
+    const imgs  = rejectLargeFiles(all.filter(f => f.type.startsWith('image/')), LIMITS.maxImageBytes, 'image');
+    const pdfs  = rejectLargeFiles(all.filter(f => f.type === 'application/pdf'), LIMITS.maxPdfBytes, 'pdf');
+    const texts = rejectLargeFiles(all.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf'), LIMITS.maxTextFileBytes, 'text');
     readImageFiles(imgs, img => setPendingImages(imgs => [...imgs, img]));
     readPdfFiles(pdfs,   pdf => setPendingPdfs(ps => [...ps, pdf]));
     readTextFiles(texts, f   => setPendingFiles(fs => [...fs, f]));
@@ -327,9 +422,9 @@ export default function Home() {
   const handleDrop = (e: React.DragEvent<HTMLFormElement>) => {
     e.preventDefault();
     const all   = Array.from(e.dataTransfer.files);
-    const imgs  = all.filter(f => f.type.startsWith('image/'));
-    const pdfs  = all.filter(f => f.type === 'application/pdf');
-    const texts = all.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf');
+    const imgs  = rejectLargeFiles(all.filter(f => f.type.startsWith('image/')), LIMITS.maxImageBytes, 'image');
+    const pdfs  = rejectLargeFiles(all.filter(f => f.type === 'application/pdf'), LIMITS.maxPdfBytes, 'pdf');
+    const texts = rejectLargeFiles(all.filter(f => !f.type.startsWith('image/') && f.type !== 'application/pdf'), LIMITS.maxTextFileBytes, 'text');
     readImageFiles(imgs, img => setPendingImages(imgs => [...imgs, img]));
     readPdfFiles(pdfs,   pdf => setPendingPdfs(ps => [...ps, pdf]));
     readTextFiles(texts, f   => setPendingFiles(fs => [...fs, f]));
@@ -337,6 +432,9 @@ export default function Home() {
 
   const doStream = async (msgs: Message[], useWebSearch = false) => {
     const SMOOTH_RATE = 3;
+    const requestModel = model;
+    const requestSystemPrompt = systemPrompt;
+    const requestMessages = stripMessageHtml(msgs);
 
     pinnedRef.current = true;
     setShowScrollBtn(false);
@@ -351,35 +449,48 @@ export default function Home() {
     webSearchPhaseRef.current = phase;
     setWebSearchPhase(phase);
 
+    abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
     const finalize = (text: string) => {
-      const finalMsgs: Message[] = [...msgs, { role: 'assistant', content: text, html: renderMarkdown(text) }];
+      const finalMsgs: Message[] = [...msgs, withRenderedHtml({ role: 'assistant', content: text })];
       setMessages(finalMsgs);
       setStreamingContent('');
       setStreaming(false);
       textareaRef.current?.focus();
       webSearchPhaseRef.current = 'off';
       setWebSearchPhase('off');
-      if (saveHistory) {
+      if (saveHistoryRef.current) {
         (async () => {
           try {
             const key = cryptoKeyRef.current;
-            if (!key) return;
+            if (!key) {
+              logClientEvent('history.save_skipped_no_key', 'warn');
+              return;
+            }
             const title = finalMsgs.find(m => m.role === 'user')?.content.slice(0, 60) ?? 'Untitled';
-            const toSave = finalMsgs.map(({ html: _, ...m }) => m);
-            const { iv, ciphertext } = await encrypt(key, { messages: toSave, model, systemPrompt, title });
+            const toSave = stripMessageHtml(finalMsgs);
+            const { iv, ciphertext } = await encrypt(key, { messages: toSave, model: requestModel, systemPrompt: requestSystemPrompt, title });
             const res = await fetch('/api/history', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ id: chatIdRef.current, iv, ciphertext }),
             });
+            if (!res.ok) {
+              logClientEvent('history.save_failed', 'warn', {
+                status: res.status,
+                requestId: res.headers.get('x-request-id'),
+              });
+              return;
+            }
             const { id } = await res.json();
             chatIdRef.current = id;
             setSavedFlash(true);
             setTimeout(() => setSavedFlash(false), 2000);
-          } catch { /* non-critical */ }
+          } catch {
+            logClientEvent('history.save_failed', 'error');
+          }
         })();
       }
     };
@@ -413,16 +524,20 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: msgs.map(({ html: _, ...m }) => m), model, systemPrompt, webSearch: useWebSearch }),
+        body: JSON.stringify({ messages: requestMessages, model: requestModel, systemPrompt: requestSystemPrompt, webSearch: useWebSearch }),
         signal: controller.signal,
       });
+      const requestId = res.headers.get('x-request-id');
 
       if (!res.ok) {
         cancelTicker();
         const body = await res.text();
-        setMessages(m => [...m, { role: 'assistant', content: parseStreamError(res.status, body) }]);
+        logClientEvent('chat.request_failed', 'warn', { status: res.status, requestId });
+        setMessages(m => [...m, withRenderedHtml({ role: 'assistant', content: parseStreamError(res.status, body) })]);
         setStreamingContent('');
         setStreaming(false);
+        setWebSearchPhase('off');
+        webSearchPhaseRef.current = 'off';
         textareaRef.current?.focus();
         return;
       }
@@ -457,11 +572,12 @@ export default function Home() {
         if (partial) finalize(partial); // preserve whatever arrived before STOP
         return;
       }
+      logClientEvent('chat.stream_failed', 'error');
       const errMsg = `[ERROR] ${String(err)}`;
       if (partial) {
         finalize(partial + '\n\n' + errMsg);
       } else {
-        setMessages(m => [...m, { role: 'assistant', content: errMsg }]);
+        setMessages(m => [...m, withRenderedHtml({ role: 'assistant', content: errMsg })]);
       }
     }
   };
@@ -484,12 +600,12 @@ export default function Home() {
       .join('\n\n');
     const fullContent = [trimmed, fileAttachments].filter(Boolean).join('\n\n');
 
-    const userMessage: Message = {
+    const userMessage = withRenderedHtml({
       role: 'user',
       content: fullContent,
       ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
       ...(pendingPdfs.length  > 0 ? { pdfs:   pendingPdfs  } : {}),
-    };
+    });
     const currentWebSearch = webSearch;
     setInput('');
     setPendingImages([]);
@@ -501,7 +617,7 @@ export default function Home() {
     await doStream([...messages, userMessage], currentWebSearch);
   };
 
-  const handleRetry = () => doStream(messages.slice(0, -1));
+  const handleRetry = () => doStream(withRenderedMessages(messages.slice(0, -1)));
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -544,9 +660,9 @@ export default function Home() {
 
   const confirmEdit = () => {
     if (editingIndex === null) return;
-    const edited: Message = { ...messages[editingIndex], content: editingContent };
+    const edited = withRenderedHtml({ role: messages[editingIndex].role, content: editingContent });
     setEditingIndex(null);
-    doStream([...messages.slice(0, editingIndex), edited]);
+    doStream(withRenderedMessages([...messages.slice(0, editingIndex), edited]));
   };
 
   const handleExport = () => {
@@ -692,8 +808,8 @@ export default function Home() {
                   </div>
                 ) : (
                   msg.role === 'assistant'
-                    ? <div dangerouslySetInnerHTML={{ __html: msg.html ?? renderMarkdown(msg.content) }} />
-                    : msg.content && <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                    ? <RenderedMarkdown text={msg.content} html={msg.html} />
+                    : msg.content && <RenderedMarkdown text={msg.content} html={msg.html} />
                 )}
                 {editingIndex === null && (
                   <div className="msg-actions">
@@ -717,7 +833,7 @@ export default function Home() {
             <div className="message assistant">
               <span className="role">#</span>
               {streamingContent
-                ? <div className="content" dangerouslySetInnerHTML={{ __html: renderMarkdown(streamingContent) }} />
+                ? <div className="content stream-content">{streamingContent}</div>
                 : <span className="content thinking">
                     {!connected
                       ? <span className="waiting-cursor">▋</span>

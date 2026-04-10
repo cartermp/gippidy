@@ -1,19 +1,21 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { auth, signIn } from '@/auth';
-import { query } from '@/lib/db';
-import { renderMarkdown } from '@/lib/markdown';
+import { auth, googleAuthConfigured, signIn } from '@/auth';
+import RenderedMarkdown from '@/app/rendered-markdown';
 import ForkButton from './fork-button';
 import logger from '@/lib/log';
 import type { Message } from '@/lib/chat';
+import { getSharedChat } from '@/lib/share';
+import { isShareId } from '@/lib/validation';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const result = await query('SELECT model, messages FROM shared_chats WHERE id = $1', [id]);
-  if (result.rows.length === 0) return { title: 'Not found — GIPPIDY' };
+  if (!isShareId(id)) return { title: 'Not found — GIPPIDY' };
+  const share = await getSharedChat(id);
+  if (!share) return { title: 'Not found — GIPPIDY' };
 
-  const { model, messages }: { model: string; messages: Message[] } = result.rows[0];
+  const { model, messages } = share;
   const firstUserMsg = messages.find(m => m.role === 'user')?.content ?? '';
   const preview = firstUserMsg.length > 140 ? firstUserMsg.slice(0, 140) + '…' : firstUserMsg;
   const title = `Shared chat · ${model}`;
@@ -31,17 +33,17 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [sessionResult, dbResult] = await Promise.all([
+  if (!isShareId(id)) notFound();
+  const [sessionResult, share] = await Promise.all([
     auth(),
-    query('SELECT * FROM shared_chats WHERE id = $1', [id]),
+    getSharedChat(id),
   ]);
 
-  if (dbResult.rows.length === 0) {
+  if (!share) {
     logger.warn({ id }, 'share.view not_found');
     notFound();
   }
 
-  const share = dbResult.rows[0];
   logger.info({ id, model: share.model, msgs: (share.messages as unknown[]).length, authed: !!sessionResult }, 'share.view');
   const messages: Message[] = share.messages;
   const date = new Date(share.created_at).toLocaleDateString('en-US', {
@@ -57,13 +59,15 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
         <div className="header-actions">
           {sessionResult && <Link href="/" className="header-link">[BACK]</Link>}
           {sessionResult
-            ? <ForkButton messages={messages} model={share.model} systemPrompt={share.system_prompt} />
-            : <form action={async () => {
-                'use server';
-                await signIn('google', { redirectTo: `/share/${id}` });
-              }}>
-                <button type="submit">[SIGN IN TO CONTINUE]</button>
-              </form>
+            ? <ForkButton messages={messages} model={share.model} systemPrompt={share.system_prompt ?? undefined} />
+            : googleAuthConfigured
+              ? <form action={async () => {
+                  'use server';
+                  await signIn('google', { redirectTo: `/share/${id}` });
+                }}>
+                  <button type="submit">[SIGN IN TO CONTINUE]</button>
+                </form>
+              : <span className="share-meta">sign-in unavailable</span>
           }
         </div>
       </header>
@@ -83,8 +87,8 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
                 </div>
               )}
               {msg.role === 'assistant'
-                ? <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-                : msg.content && <span>{msg.content}</span>
+                ? <RenderedMarkdown text={msg.content} />
+                : msg.content && <RenderedMarkdown text={msg.content} />
               }
             </div>
           </div>

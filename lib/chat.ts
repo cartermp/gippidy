@@ -11,7 +11,13 @@ export function getProvider(model: string): Provider {
 }
 
 export function toOpenAIMessages(messages: Message[], systemPrompt?: string) {
-  const result = messages.map(m => {
+  const result: Array<{
+    role: Role | 'system';
+    content: string | Array<
+      | { type: 'image_url'; image_url: { url: string } }
+      | { type: 'text'; text: string }
+    >;
+  }> = messages.map(m => {
     // PDFs not supported by chat completions; surface as a text note
     const pdfNote = m.pdfs?.map(p => `[PDF attached: ${p.name} — this model cannot read PDFs]`).join('\n') ?? '';
     const fullContent = [pdfNote, m.content].filter(Boolean).join('\n');
@@ -21,10 +27,10 @@ export function toOpenAIMessages(messages: Message[], systemPrompt?: string) {
       role: m.role,
       content: [
         ...m.images.map(img => ({
-          type: 'image_url',
+          type: 'image_url' as const,
           image_url: { url: `data:${img.mimeType};base64,${img.data}` },
         })),
-        ...(fullContent ? [{ type: 'text', text: fullContent }] : []),
+        ...(fullContent ? [{ type: 'text' as const, text: fullContent }] : []),
       ],
     };
   });

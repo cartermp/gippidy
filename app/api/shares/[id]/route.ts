@@ -1,15 +1,33 @@
-import { query } from '@/lib/db';
 import logger from '@/lib/log';
+import { textResponse, getRequestId } from '@/lib/request';
+import { getSharedChat } from '@/lib/share';
+import { isShareId } from '@/lib/validation';
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+const SHARE_CACHE = 'public, max-age=300, stale-while-revalidate=3600';
+
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = getRequestId(req);
   const start = Date.now();
-  const { id } = await params;
-  const result = await query(
-    'SELECT id, model, system_prompt, messages, created_at FROM shared_chats WHERE id = $1',
-    [id],
-  );
-  const found = result.rows.length > 0;
-  logger.info({ id, found, durationMs: Date.now() - start }, 'share.get');
-  if (!found) return new Response('Not found', { status: 404 });
-  return Response.json(result.rows[0]);
+
+  try {
+    const { id } = await params;
+    if (!isShareId(id)) {
+      logger.warn({ requestId, id, durationMs: Date.now() - start }, 'share.get.invalid');
+      return textResponse('Not found', { status: 404 }, { requestId, cacheControl: SHARE_CACHE });
+    }
+
+    const share = await getSharedChat(id);
+    logger.info({ requestId, id, found: !!share, durationMs: Date.now() - start }, 'share.get');
+    if (!share) return textResponse('Not found', { status: 404 }, { requestId, cacheControl: SHARE_CACHE });
+    return textResponse(JSON.stringify(share), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    }, {
+      requestId,
+      cacheControl: SHARE_CACHE,
+    });
+  } catch (error) {
+    logger.error({ requestId, durationMs: Date.now() - start, error: String(error).slice(0, 200) }, 'share.get.failed');
+    return textResponse('Internal Server Error', { status: 500 }, { requestId, cacheControl: SHARE_CACHE });
+  }
 }

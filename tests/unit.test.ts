@@ -232,6 +232,12 @@ test('renderMarkdown: user message with mixed text and fenced code block renders
   assert.ok(html.includes('code-block'), `copy button wrapper should be present, got: ${html}`);
 });
 
+test('renderMarkdown: copy button uses data attribute instead of inline handler', () => {
+  const html = renderMarkdown('```js\nconst x = 1;\n```');
+  assert.ok(html.includes('data-copy-code'), `copy button data attribute should be present, got: ${html}`);
+  assert.ok(!html.includes('onclick='), `inline handler should be absent, got: ${html}`);
+});
+
 // ── parseStreamError ─────────────────────────────────────────────────────────
 
 test('parseStreamError: 429 → rate limit message', () => {
