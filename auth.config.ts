@@ -4,8 +4,9 @@ export const authConfig: NextAuthConfig = {
   providers: [],
   callbacks: {
     signIn({ user }) {
-      const allowed = (process.env.ALLOWED_EMAIL ?? '').split(',').map(e => e.trim());
-      return allowed.includes(user.email ?? '');
+      if (!process.env.ALLOWED_EMAIL || !user.email) return false;
+      const allowed = process.env.ALLOWED_EMAIL.split(',').map(e => e.trim()).filter(Boolean);
+      return allowed.includes(user.email);
     },
   },
 };

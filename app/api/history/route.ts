@@ -39,12 +39,15 @@ export async function POST(req: Request) {
   const ciphertextBytes = Math.round((ciphertext?.length ?? 0) * 0.75);
 
   if (id) {
-    await query(
+    const upd = await query(
       'UPDATE chat_histories SET iv = $1, ciphertext = $2, updated_at = now() WHERE id = $3 AND user_email = $4',
       [iv, ciphertext, id, session.user.email],
     );
-    logger.info({ user: session.user.email, id, op: 'update', durationMs: Date.now() - start, ciphertextBytes }, 'history.save');
-    return Response.json({ id });
+    if ((upd.rowCount ?? 0) > 0) {
+      logger.info({ user: session.user.email, id, op: 'update', durationMs: Date.now() - start, ciphertextBytes }, 'history.save');
+      return Response.json({ id });
+    }
+    // Row was deleted externally — fall through to INSERT so the save is not lost
   }
 
   const result = await query(

@@ -21,11 +21,17 @@ export async function POST(req: NextRequest) {
     );
   }
   const { messages, model, systemPrompt } = body;
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return Response.json({ error: 'messages must be a non-empty array' }, { status: 400 });
+  }
+  if (typeof model !== 'string' || !model) {
+    return Response.json({ error: 'model is required' }, { status: 400 });
+  }
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 
   await query(
     'INSERT INTO shared_chats (id, created_by, model, system_prompt, messages) VALUES ($1, $2, $3, $4, $5)',
-    [id, session.user.email, model, systemPrompt || null, JSON.stringify(messages)],
+    [id, session.user.email, model, typeof systemPrompt === 'string' ? systemPrompt || null : null, JSON.stringify(messages)],
   );
 
   logger.info({ user: session.user.email, id, model, msgs: messages.length, bodyBytes, durationMs: Date.now() - start }, 'share.create');

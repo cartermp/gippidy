@@ -134,14 +134,18 @@ export default function Home() {
       .catch(e => { if (e.name !== 'AbortError') keyResolveRef.current?.(); });
 
     const fork = localStorage.getItem('gippidy-fork');
+    localStorage.removeItem('gippidy-fork');
     if (fork) {
-      const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
-      setMessages(m);
-      setModel(mo);
-      localStorage.setItem(MODEL_KEY, mo);
-      if (sp) { setSystemPrompt(sp); }
-      localStorage.removeItem('gippidy-fork');
-      chatIdRef.current = null; // fork always starts a new history entry
+      try {
+        const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
+        setMessages(m);
+        setModel(mo);
+        localStorage.setItem(MODEL_KEY, mo);
+        if (sp) { setSystemPrompt(sp); }
+        chatIdRef.current = null; // fork always starts a new history entry
+      } catch {
+        // Corrupt fork data — silently discard
+      }
     }
     return () => ac.abort();
   }, []);
