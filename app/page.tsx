@@ -291,7 +291,6 @@ export default function Home() {
       pinnedRef.current = atBottom;
       setShowScrollBtn(!atBottom);
     };
-    onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
