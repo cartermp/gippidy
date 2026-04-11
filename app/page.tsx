@@ -107,8 +107,7 @@ export default function Home() {
   const messagesRef        = useRef<HTMLDivElement>(null);
   const textareaRef        = useRef<HTMLTextAreaElement>(null);
   const fileRef            = useRef<HTMLInputElement>(null);
-  const pinnedRef          = useRef(true);
-  const lastScrollTop      = useRef(0);
+  const pinnedRef          = useRef(false);
   const saveSettingsTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const receivedRef        = useRef('');
   const displayPosRef      = useRef(0);
@@ -289,23 +288,24 @@ export default function Home() {
     if (!el) return;
     const onScroll = () => {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-      if (atBottom) {
-        if (!pinnedRef.current) setShowScrollBtn(false);
-        pinnedRef.current = true;
-      } else if (el.scrollTop < lastScrollTop.current) {
-        if (pinnedRef.current) setShowScrollBtn(true);
-        pinnedRef.current = false;
-      }
-      lastScrollTop.current = el.scrollTop;
+      pinnedRef.current = atBottom;
+      setShowScrollBtn(!atBottom);
     };
+    onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
   useEffect(() => {
-    if (pinnedRef.current && messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    const el = messagesRef.current;
+    if (!el) return;
+    if (pinnedRef.current) {
+      el.scrollTop = el.scrollHeight;
+      setShowScrollBtn(false);
+      return;
     }
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setShowScrollBtn(el.scrollHeight > el.clientHeight && !atBottom);
   }, [messages, streamingHtml]);
 
   const scrollToBottom = () => {
@@ -479,8 +479,6 @@ export default function Home() {
     const requestSystemPrompt = systemPrompt;
     const requestMessages = stripMessageHtml(msgs);
 
-    pinnedRef.current = true;
-    setShowScrollBtn(false);
     setMessages(msgs);
     setStreaming(true);
     setStreamingContent('');
