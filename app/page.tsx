@@ -344,16 +344,18 @@ export default function Home() {
       const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
       const ordered = Array<HistoryItem | null>(rows.length).fill(null);
       let failed = 0;
+      let firstFailedId: string | null = null;
       await Promise.allSettled(rows.map(async (row, i) => {
         try {
           const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
-          ordered[i] = { id: row.id, updatedAt: row.updated_at, ...data, messages: withRenderedMessages(data.messages) };
+          ordered[i] = { id: row.id, updatedAt: row.updated_at, ...data };
           setHistoryItems(ordered.filter((item): item is HistoryItem => Boolean(item)));
         } catch {
           failed++;
+          if (!firstFailedId) firstFailedId = row.id;
         }
       }));
-      if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length });
+      if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length, firstFailedId });
     } catch {
       logClientEvent('history.load_failed', 'error');
       setHistoryItems([]);
