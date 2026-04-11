@@ -77,19 +77,26 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
       <div className="messages">
         {messages.map((msg, i) => (
           <div key={i} className={`message ${msg.role}`}>
-            <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
-            <div className="content">
-              {msg.images && msg.images.length > 0 && (
-                <div className="message-images">
-                  {msg.images.map((img, j) => (
-                    <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
-                  ))}
+            <div className="message-shell">
+              <div className="message-head">
+                <span className="message-label">{msg.role === 'assistant' ? '[OUTPUT]' : '[INPUT]'}</span>
+              </div>
+              <div className="message-body">
+                <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
+                <div className="content">
+                  {msg.images && msg.images.length > 0 && (
+                    <div className="message-images">
+                      {msg.images.map((img, j) => (
+                        <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
+                      ))}
+                    </div>
+                  )}
+                  {msg.role === 'assistant'
+                    ? <RenderedMarkdown text={msg.content} />
+                    : msg.content && <RenderedMarkdown text={msg.content} />
+                  }
                 </div>
-              )}
-              {msg.role === 'assistant'
-                ? <RenderedMarkdown text={msg.content} />
-                : msg.content && <RenderedMarkdown text={msg.content} />
-              }
+              </div>
             </div>
           </div>
         ))}

@@ -832,67 +832,81 @@ export default function Home() {
           )}
           {messages.map((msg, i) => (
             <div key={i} className={`message ${msg.role}`}>
-              <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
-              <div className="content">
-                {msg.images && msg.images.length > 0 && (
-                  <div className="message-images">
-                    {msg.images.map((img, j) => (
-                      <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
-                    ))}
-                  </div>
-                )}
-                {editingIndex === i ? (
-                  <div className="edit-form">
-                    <textarea
-                      value={editingContent}
-                      onChange={e => setEditingContent(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirmEdit(); if (e.key === 'Escape') setEditingIndex(null); }}
-                      autoFocus
-                    />
-                    <div className="edit-actions">
-                      <button type="button" onClick={confirmEdit}>[SEND]</button>
-                      <button type="button" onClick={() => setEditingIndex(null)}>[CANCEL]</button>
+              <div className="message-shell">
+                <div className="message-head">
+                  <span className="message-label">{msg.role === 'assistant' ? '[OUTPUT]' : '[INPUT]'}</span>
+                  {editingIndex === null && (
+                    <div className="msg-actions">
+                      {msg.role === 'assistant' && (
+                        <button className="msg-copy-btn" type="button" aria-label="Copy output as markdown" onClick={() => copyMessage(msg.content, i)}>
+                          {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
+                        </button>
+                      )}
+                      {msg.role === 'assistant' && !streaming && i === messages.length - 1 && (
+                        <button className="msg-retry-btn" type="button" onClick={handleRetry}>[RETRY]</button>
+                      )}
+                      {msg.role === 'user' && !streaming && (
+                        <button className="msg-edit-btn" type="button" onClick={() => startEdit(i)}>[EDIT]</button>
+                      )}
                     </div>
+                  )}
+                </div>
+                <div className="message-body">
+                  <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
+                  <div className="content">
+                    {msg.images && msg.images.length > 0 && (
+                      <div className="message-images">
+                        {msg.images.map((img, j) => (
+                          <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
+                        ))}
+                      </div>
+                    )}
+                    {editingIndex === i ? (
+                      <div className="edit-form">
+                        <textarea
+                          value={editingContent}
+                          onChange={e => setEditingContent(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) confirmEdit(); if (e.key === 'Escape') setEditingIndex(null); }}
+                          autoFocus
+                        />
+                        <div className="edit-actions">
+                          <button type="button" onClick={confirmEdit}>[SEND]</button>
+                          <button type="button" onClick={() => setEditingIndex(null)}>[CANCEL]</button>
+                        </div>
+                      </div>
+                    ) : (
+                      msg.role === 'assistant'
+                        ? <RenderedMarkdown text={msg.content} html={msg.html} />
+                        : msg.content && <RenderedMarkdown text={msg.content} html={msg.html} />
+                    )}
                   </div>
-                ) : (
-                  msg.role === 'assistant'
-                    ? <RenderedMarkdown text={msg.content} html={msg.html} />
-                    : msg.content && <RenderedMarkdown text={msg.content} html={msg.html} />
-                )}
-                {editingIndex === null && (
-                  <div className="msg-actions">
-                    {msg.role === 'assistant' && (
-                      <button className="msg-copy-btn" onClick={() => copyMessage(msg.content, i)}>
-                        {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
-                      </button>
-                    )}
-                    {msg.role === 'assistant' && !streaming && i === messages.length - 1 && (
-                      <button className="msg-retry-btn" onClick={handleRetry}>[RETRY]</button>
-                    )}
-                    {msg.role === 'user' && !streaming && (
-                      <button className="msg-edit-btn" onClick={() => startEdit(i)}>[EDIT]</button>
-                    )}
-                  </div>
-                )}
+                </div>
               </div>
             </div>
           ))}
           {streaming && (
             <div className="message assistant">
-              <span className="role">#</span>
-              {streamingContent
-                ? <RenderedMarkdown html={streamingHtml || undefined} text={streamingHtml ? '' : streamingContent} className="content" />
-                : <span className="content thinking">
-                    {!connected
-                      ? <span className="waiting-cursor">▋</span>
-                      : webSearchPhase === 'searching'
-                        ? <>searching the web<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
-                        : webSearchPhase === 'generating'
-                          ? <>generating<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
-                          : <>thinking<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
-                    }
-                  </span>
-              }
+              <div className="message-shell">
+                <div className="message-head">
+                  <span className="message-label">[OUTPUT]</span>
+                </div>
+                <div className="message-body">
+                  <span className="role">#</span>
+                  {streamingContent
+                    ? <RenderedMarkdown html={streamingHtml || undefined} text={streamingHtml ? '' : streamingContent} className="content" />
+                    : <span className="content thinking">
+                        {!connected
+                          ? <span className="waiting-cursor">▋</span>
+                          : webSearchPhase === 'searching'
+                            ? <>searching the web<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
+                            : webSearchPhase === 'generating'
+                              ? <>generating<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
+                              : <>thinking<span className="thinking-dots"><span>.</span><span>.</span><span>.</span></span></>
+                        }
+                      </span>
+                  }
+                </div>
+              </div>
             </div>
           )}
             </>
