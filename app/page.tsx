@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { startTransition, useState, useEffect, useRef } from 'react';
 import { signOut } from 'next-auth/react';
 import RenderedMarkdown from './rendered-markdown';
 import { renderMarkdown } from '@/lib/markdown';
@@ -14,6 +14,7 @@ type PendingPdf  = Pdf;
 
 const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
+const STREAM_MARKDOWN_INTERVAL_MS = 120;
 
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
 
@@ -81,6 +82,7 @@ export default function Home() {
   const [systemPrompt, setSystemPrompt]         = useState('');
   const [streaming, setStreaming]               = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingHtml, setStreamingHtml]       = useState('');
   const [connected, setConnected]               = useState(false);
   const [showSettings, setShowSettings]         = useState(false);
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
@@ -112,10 +114,13 @@ export default function Home() {
   const displayPosRef      = useRef(0);
   const streamDoneRef      = useRef(false);
   const rafRef             = useRef<number | null>(null);
+  const streamingHtmlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const inputHistoryRef    = useRef<string[]>([]);
   const historyIndexRef    = useRef(-1);
   const draftInputRef      = useRef('');
+  const latestStreamingTextRef = useRef('');
+  const lastRenderedStreamingTextRef = useRef('');
 
   // Resolves when the crypto key has been loaded from/saved to the server.
   // loadHistory awaits this so it never races against the settings fetch.
@@ -134,7 +139,43 @@ export default function Home() {
 
   useEffect(() => () => {
     if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
+    if (streamingHtmlTimerRef.current) clearTimeout(streamingHtmlTimerRef.current);
   }, []);
+
+  const renderStreamingMarkdown = (text: string) => {
+    lastRenderedStreamingTextRef.current = text;
+    startTransition(() => {
+      setStreamingHtml(text ? renderMarkdown(text) : '');
+    });
+  };
+
+  useEffect(() => {
+    latestStreamingTextRef.current = streamingContent;
+
+    if (!streamingContent) {
+      if (streamingHtmlTimerRef.current) {
+        clearTimeout(streamingHtmlTimerRef.current);
+        streamingHtmlTimerRef.current = null;
+      }
+      lastRenderedStreamingTextRef.current = '';
+      setStreamingHtml('');
+      return;
+    }
+
+    if (streamingContent === lastRenderedStreamingTextRef.current) return;
+
+    if (!lastRenderedStreamingTextRef.current) {
+      renderStreamingMarkdown(streamingContent);
+      return;
+    }
+
+    if (streamingHtmlTimerRef.current) return;
+    streamingHtmlTimerRef.current = setTimeout(() => {
+      streamingHtmlTimerRef.current = null;
+      const latest = latestStreamingTextRef.current;
+      if (latest !== lastRenderedStreamingTextRef.current) renderStreamingMarkdown(latest);
+    }, STREAM_MARKDOWN_INTERVAL_MS);
+  }, [streamingContent]);
 
   const logClientEvent = (
     event: string,
@@ -265,7 +306,7 @@ export default function Home() {
     if (pinnedRef.current && messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
-  }, [messages, streamingContent]);
+  }, [messages, streamingHtml]);
 
   const scrollToBottom = () => {
     pinnedRef.current = true;
@@ -443,10 +484,13 @@ export default function Home() {
     setMessages(msgs);
     setStreaming(true);
     setStreamingContent('');
+    setStreamingHtml('');
     setConnected(false);
     receivedRef.current   = '';
     displayPosRef.current = 0;
     streamDoneRef.current = false;
+    latestStreamingTextRef.current = '';
+    lastRenderedStreamingTextRef.current = '';
     const phase = useWebSearch ? 'searching' : 'off';
     webSearchPhaseRef.current = phase;
     setWebSearchPhase(phase);
@@ -458,7 +502,12 @@ export default function Home() {
     const finalize = (text: string) => {
       const finalMsgs: Message[] = [...msgs, withRenderedHtml({ role: 'assistant', content: text })];
       setMessages(finalMsgs);
+      if (streamingHtmlTimerRef.current) {
+        clearTimeout(streamingHtmlTimerRef.current);
+        streamingHtmlTimerRef.current = null;
+      }
       setStreamingContent('');
+      setStreamingHtml('');
       setStreaming(false);
       textareaRef.current?.focus();
       webSearchPhaseRef.current = 'off';
@@ -835,7 +884,7 @@ export default function Home() {
             <div className="message assistant">
               <span className="role">#</span>
               {streamingContent
-                ? <div className="content stream-content">{streamingContent}</div>
+                ? <RenderedMarkdown html={streamingHtml || undefined} text={streamingHtml ? '' : streamingContent} className="content" />
                 : <span className="content thinking">
                     {!connected
                       ? <span className="waiting-cursor">▋</span>
