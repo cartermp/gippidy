@@ -276,6 +276,50 @@ test('validateSettingsRequest: validates and defaults girlMode', () => {
   );
 });
 
+test('settings persistence preserves untouched fields and tolerates older schemas', () => {
+  const source = readFileSync(join(import.meta.dirname, '../app/api/settings/route.ts'), 'utf8');
+  assert.ok(
+    source.includes('system_prompt = COALESCE($2, user_settings.system_prompt)'),
+    'settings PUT should preserve the existing system prompt when that field was not sent',
+  );
+  assert.ok(
+    source.includes('save_history  = COALESCE($3, user_settings.save_history)'),
+    'settings PUT should preserve the existing save_history value when that field was not sent',
+  );
+  assert.ok(
+    source.includes('girl_mode     = COALESCE($5, user_settings.girl_mode)'),
+    'settings PUT should preserve the existing girl_mode value when that field was not sent',
+  );
+  assert.ok(
+    source.includes('SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1'),
+    'settings GET should fall back when girl_mode has not been migrated yet',
+  );
+});
+
+test('page source merges local settings changes before initial settings hydrate completes', () => {
+  const source = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  assert.ok(
+    source.includes('const pendingSettingsRef = useRef<PendingSettings>({});'),
+    'page should track local settings changes made before the initial fetch finishes',
+  );
+  assert.ok(
+    source.includes('const nextSaveHistory = pending.saveHistory ?? Boolean(sh);'),
+    'page should keep a local saveHistory toggle instead of overwriting it with stale server data',
+  );
+  assert.ok(
+    source.includes("const nextGirlMode = pending.girlMode ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);"),
+    'page should keep a local girlMode toggle instead of overwriting it with stale server data',
+  );
+  assert.ok(
+    source.includes('pendingPersistRef.current = { ...pendingPersistRef.current, ...overrides };'),
+    'page should merge back-to-back settings changes before sending them',
+  );
+  assert.ok(
+    source.includes('const body = JSON.stringify(patch);'),
+    'page should send only the accumulated settings fields that actually changed',
+  );
+});
+
 // ── SSE chunk parsers ─────────────────────────────────────────────────────────
 
 test('parseOpenAIChunk: extracts delta content', () => {
@@ -523,4 +567,16 @@ test('globals.css defines a girl mode theme with sparkles', () => {
   const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
   assert.ok(css.includes(":root[data-girl-mode='true']"), 'girl mode theme selector missing');
   assert.ok(css.includes('--sparkle-opacity'), 'girl mode sparkle variables missing');
+});
+
+test('settings toggle checkboxes are excluded from generic settings input styling', () => {
+  const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+  assert.ok(
+    css.includes(".settings-row > input:not([type='checkbox'])"),
+    'generic settings row input styling should exclude checkbox toggles',
+  );
+  assert.ok(
+    css.includes('flex: 0 0 auto;'),
+    'settings toggle checkboxes should keep their natural width',
+  );
 });

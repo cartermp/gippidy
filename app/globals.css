@@ -274,7 +274,7 @@ header select option {
   gap: 12px;
 }
 
-.settings-row label {
+.settings-row > label:not(.settings-toggle) {
   color: var(--dim);
   min-width: 150px;
   padding-top: 4px;
@@ -282,9 +282,9 @@ header select option {
   flex-shrink: 0;
 }
 
-.settings-row select,
-.settings-row input,
-.settings-row textarea {
+.settings-row > select,
+.settings-row > input:not([type='checkbox']),
+.settings-row > textarea {
   flex: 1;
   background: var(--bg);
   color: var(--fg);
@@ -294,7 +294,7 @@ header select option {
   padding: 4px 8px;
 }
 
-.settings-row button {
+.settings-row > button {
   background: transparent;
   color: var(--fg);
   border: 1px solid var(--border);
@@ -304,25 +304,25 @@ header select option {
   cursor: pointer;
 }
 
-.settings-row button:hover {
+.settings-row > button:hover {
   border-color: var(--dim);
   color: var(--green);
 }
 
-.settings-row select:focus,
-.settings-row button:focus,
-.settings-row input:focus,
-.settings-row textarea:focus {
+.settings-row > select:focus,
+.settings-row > button:focus,
+.settings-row > input:not([type='checkbox']):focus,
+.settings-row > textarea:focus {
   outline: none;
   border-color: var(--green);
 }
 
-.settings-row textarea {
+.settings-row > textarea {
   resize: vertical;
   min-height: 60px;
 }
 
-.settings-row label.settings-toggle {
+.settings-row > label.settings-toggle {
   min-width: 0;
   padding-top: 0;
   color: var(--fg);
@@ -335,6 +335,8 @@ header select option {
 
 .settings-toggle input {
   accent-color: var(--green);
+  flex: 0 0 auto;
+  margin: 0;
 }
 
 .settings-toggle-copy {

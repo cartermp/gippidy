@@ -19,6 +19,8 @@ const GIRL_MODE_ATTR = 'data-girl-mode';
 const STREAM_MARKDOWN_INTERVAL_MS = 120;
 
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
+type SettingsPatch = { systemPrompt?: string; saveHistory?: boolean; girlMode?: boolean; keyJwk?: string | null };
+type PendingSettings = Omit<SettingsPatch, 'keyJwk'>;
 
 function withRenderedHtml(message: Message): Message {
   return message.content ? { ...message, html: renderMarkdown(message.content) } : message;
@@ -117,6 +119,7 @@ export default function Home() {
   const fileRef            = useRef<HTMLInputElement>(null);
   const pinnedRef          = useRef(false);
   const saveSettingsTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPersistRef  = useRef<SettingsPatch>({});
   const receivedRef        = useRef('');
   const displayPosRef      = useRef(0);
   const streamDoneRef      = useRef(false);
@@ -133,13 +136,10 @@ export default function Home() {
   // loadHistory awaits this so it never races against the settings fetch.
   const keyResolveRef = useRef<(() => void) | null>(null);
   const keyReadyRef   = useRef<Promise<void>>(new Promise(resolve => { keyResolveRef.current = resolve; }));
-  const systemPromptRef = useRef(systemPrompt);
   const saveHistoryRef  = useRef(saveHistory);
   const girlModeRef     = useRef(girlMode);
-
-  useEffect(() => {
-    systemPromptRef.current = systemPrompt;
-  }, [systemPrompt]);
+  const initialSettingsLoadedRef = useRef(false);
+  const pendingSettingsRef = useRef<PendingSettings>({});
 
   useEffect(() => {
     saveHistoryRef.current = saveHistory;
@@ -216,14 +216,21 @@ export default function Home() {
     setGirlModeDom(enabled);
   };
 
-  const persistSettings = (overrides: { systemPrompt?: string; saveHistory?: boolean; girlMode?: boolean; keyJwk?: string | null }, immediate = false) => {
+  const rememberPendingSettings = (patch: PendingSettings) => {
+    if (initialSettingsLoadedRef.current) return;
+    pendingSettingsRef.current = { ...pendingSettingsRef.current, ...patch };
+  };
+
+  const persistSettings = (overrides: SettingsPatch, immediate = false) => {
+    if (Object.keys(overrides).length === 0) return;
+    pendingPersistRef.current = { ...pendingPersistRef.current, ...overrides };
+
     const run = () => {
-      const body = JSON.stringify({
-        systemPrompt: overrides.systemPrompt ?? systemPromptRef.current,
-        saveHistory: overrides.saveHistory ?? saveHistoryRef.current,
-        girlMode: overrides.girlMode ?? girlModeRef.current,
-        ...(overrides.keyJwk !== undefined ? { keyJwk: overrides.keyJwk } : {}),
-      });
+      const patch = pendingPersistRef.current;
+      pendingPersistRef.current = {};
+      if (Object.keys(patch).length === 0) return;
+
+      const body = JSON.stringify(patch);
       fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -234,7 +241,7 @@ export default function Home() {
         })
         .catch(() => {
           logClientEvent('settings.persist_failed', 'warn', {
-            hasKey: overrides.keyJwk !== undefined ? Boolean(overrides.keyJwk) : null,
+            hasKey: patch.keyJwk !== undefined ? Boolean(patch.keyJwk) : null,
           });
         });
     };
@@ -265,21 +272,30 @@ export default function Home() {
         return r.json();
       })
       .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, keyJwk }) => {
-        setSystemPrompt(systemPrompt ?? '');
-        setSaveHistory(Boolean(sh));
-        const girlModeEnabled = Boolean(gm);
-        applyGirlMode(girlModeEnabled);
+        const pending = pendingSettingsRef.current;
+        const nextSystemPrompt = pending.systemPrompt ?? (systemPrompt ?? '');
+        const nextSaveHistory = pending.saveHistory ?? Boolean(sh);
+        const nextGirlMode = pending.girlMode ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);
+
+        initialSettingsLoadedRef.current = true;
+        pendingSettingsRef.current = {};
+
+        setSystemPrompt(nextSystemPrompt);
+        saveHistoryRef.current = nextSaveHistory;
+        setSaveHistory(nextSaveHistory);
+        applyGirlMode(nextGirlMode);
         // Load or create the encryption key (shared across all deployments via DB)
         const { key, jwk } = await getOrCreateKey(keyJwk ?? null);
         cryptoKeyRef.current = key;
         keyResolveRef.current?.();
         if (jwk) {
           // New key (or migrated from localStorage) — save to server so all deployments use it
-          persistSettings({ systemPrompt: systemPrompt ?? '', saveHistory: sh ?? false, girlMode: girlModeEnabled, keyJwk: jwk }, true);
+          persistSettings({ keyJwk: jwk }, true);
         }
       })
       .catch(e => {
         if (e.name !== 'AbortError') {
+          initialSettingsLoadedRef.current = true;
           logClientEvent('settings.load_failed', 'error');
           keyResolveRef.current?.();
         }
@@ -373,11 +389,14 @@ export default function Home() {
 
   const handleSystemChange = (s: string) => {
     setSystemPrompt(s);
+    rememberPendingSettings({ systemPrompt: s });
     persistSettings({ systemPrompt: s });
   };
 
   const handleToggleSaveHistory = (val: boolean) => {
+    saveHistoryRef.current = val;
     setSaveHistory(val);
+    rememberPendingSettings({ saveHistory: val });
     if (val && !localStorage.getItem(KEY_WARNED)) {
       alert('Your encryption key is stored in this browser only.\nClearing browser data will make saved chats permanently unreadable.');
       localStorage.setItem(KEY_WARNED, '1');
@@ -386,6 +405,7 @@ export default function Home() {
   };
 
   const handleToggleGirlMode = (val: boolean) => {
+    rememberPendingSettings({ girlMode: val });
     applyGirlMode(val);
     persistSettings({ girlMode: val }, true);
   };
@@ -768,9 +788,7 @@ export default function Home() {
         <div className="header-spacer" />
         <div className="header-actions">
           <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
-          {saveHistory && (
-            <button onClick={handleOpenHistory}>{showHistory ? '[CHAT]' : '[HISTORY]'}</button>
-          )}
+          <button onClick={handleOpenHistory}>{showHistory ? '[CHAT]' : '[HISTORY]'}</button>
           {messages.length > 0 && !streaming && (
             <button onClick={handleShare}>{shareLabel}</button>
           )}
