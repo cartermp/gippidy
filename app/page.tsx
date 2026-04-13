@@ -17,6 +17,12 @@ const KEY_WARNED   = 'gippidy-key-warned';
 const GIRL_MODE_KEY = 'gippidy-girl-mode';
 const GIRL_MODE_ATTR = 'data-girl-mode';
 const STREAM_MARKDOWN_INTERVAL_MS = 120;
+const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
+  "You are the user's super talky, supportive mid-2000s girlfriend in the best-friend sense - the girl she confides in all the time.",
+  "Answer like a warm, sparkly, emotionally tuned-in bestie: chatty, encouraging, a little dramatic in a fun way, and genuinely helpful.",
+  "Use casual phrases like 'girl', 'oh my gosh', 'okay wait', 'literally', and 'honestly' when they fit, but keep the advice clear and useful.",
+  "Assume the user is a girl talking to a trusted girl friend. Be kind, validating, practical, and on her side. Prioritize helpful answers over roleplay.",
+].join(' ');
 
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
 type SettingsPatch = { systemPrompt?: string; saveHistory?: boolean; girlMode?: boolean; keyJwk?: string | null };
@@ -37,6 +43,11 @@ function stripMessageHtml(messages: Message[]): Array<Omit<Message, 'html'>> {
 function setGirlModeDom(enabled: boolean) {
   if (enabled) document.documentElement.setAttribute(GIRL_MODE_ATTR, 'true');
   else document.documentElement.removeAttribute(GIRL_MODE_ATTR);
+}
+
+function resolveDefaultSystemPrompt(prompt: string, girlModeEnabled: boolean): string {
+  if (prompt !== '' && prompt !== GIRL_MODE_DEFAULT_SYSTEM_PROMPT) return prompt;
+  return girlModeEnabled ? GIRL_MODE_DEFAULT_SYSTEM_PROMPT : '';
 }
 
 function parseStreamError(status: number, body: string): string {
@@ -136,10 +147,15 @@ export default function Home() {
   // loadHistory awaits this so it never races against the settings fetch.
   const keyResolveRef = useRef<(() => void) | null>(null);
   const keyReadyRef   = useRef<Promise<void>>(new Promise(resolve => { keyResolveRef.current = resolve; }));
+  const systemPromptRef = useRef(systemPrompt);
   const saveHistoryRef  = useRef(saveHistory);
   const girlModeRef     = useRef(girlMode);
   const initialSettingsLoadedRef = useRef(false);
   const pendingSettingsRef = useRef<PendingSettings>({});
+
+  useEffect(() => {
+    systemPromptRef.current = systemPrompt;
+  }, [systemPrompt]);
 
   useEffect(() => {
     saveHistoryRef.current = saveHistory;
@@ -273,13 +289,15 @@ export default function Home() {
       })
       .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, keyJwk }) => {
         const pending = pendingSettingsRef.current;
-        const nextSystemPrompt = pending.systemPrompt ?? (systemPrompt ?? '');
         const nextSaveHistory = pending.saveHistory ?? Boolean(sh);
         const nextGirlMode = pending.girlMode ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);
+        const rawSystemPrompt = pending.systemPrompt ?? (systemPrompt ?? '');
+        const nextSystemPrompt = resolveDefaultSystemPrompt(rawSystemPrompt, nextGirlMode);
 
         initialSettingsLoadedRef.current = true;
         pendingSettingsRef.current = {};
 
+        systemPromptRef.current = nextSystemPrompt;
         setSystemPrompt(nextSystemPrompt);
         saveHistoryRef.current = nextSaveHistory;
         setSaveHistory(nextSaveHistory);
@@ -388,6 +406,7 @@ export default function Home() {
   };
 
   const handleSystemChange = (s: string) => {
+    systemPromptRef.current = s;
     setSystemPrompt(s);
     rememberPendingSettings({ systemPrompt: s });
     persistSettings({ systemPrompt: s });
@@ -405,9 +424,19 @@ export default function Home() {
   };
 
   const handleToggleGirlMode = (val: boolean) => {
-    rememberPendingSettings({ girlMode: val });
+    const previousPrompt = systemPromptRef.current;
+    const nextPrompt = resolveDefaultSystemPrompt(previousPrompt, val);
+    const settingsPatch = nextPrompt === previousPrompt
+      ? { girlMode: val }
+      : { girlMode: val, systemPrompt: nextPrompt };
+
+    if (nextPrompt !== previousPrompt) {
+      systemPromptRef.current = nextPrompt;
+      setSystemPrompt(nextPrompt);
+    }
+    rememberPendingSettings(settingsPatch);
     applyGirlMode(val);
-    persistSettings({ girlMode: val }, true);
+    persistSettings(settingsPatch, true);
   };
 
   const loadHistory = async () => {

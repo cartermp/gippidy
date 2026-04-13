@@ -320,6 +320,22 @@ test('page source merges local settings changes before initial settings hydrate 
   );
 });
 
+test('Girl Mode defaults the system prompt to the chatty bestie preset', () => {
+  const source = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  assert.ok(
+    source.includes('const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = ['),
+    'Girl Mode should define a dedicated default system prompt preset',
+  );
+  assert.ok(
+    source.includes("return girlModeEnabled ? GIRL_MODE_DEFAULT_SYSTEM_PROMPT : '';"),
+    'the default system prompt helper should swap between the Girl Mode preset and the plain default',
+  );
+  assert.ok(
+    source.includes('const nextPrompt = resolveDefaultSystemPrompt(previousPrompt, val);'),
+    'toggling Girl Mode should recalculate the default system prompt',
+  );
+});
+
 // ── SSE chunk parsers ─────────────────────────────────────────────────────────
 
 test('parseOpenAIChunk: extracts delta content', () => {
