@@ -14,6 +14,8 @@ type PendingPdf  = Pdf;
 
 const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
+const GIRL_MODE_KEY = 'gippidy-girl-mode';
+const GIRL_MODE_ATTR = 'data-girl-mode';
 const STREAM_MARKDOWN_INTERVAL_MS = 120;
 
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
@@ -28,6 +30,11 @@ function withRenderedMessages(messages: Message[]): Message[] {
 
 function stripMessageHtml(messages: Message[]): Array<Omit<Message, 'html'>> {
   return messages.map(({ html: _html, ...message }) => message);
+}
+
+function setGirlModeDom(enabled: boolean) {
+  if (enabled) document.documentElement.setAttribute(GIRL_MODE_ATTR, 'true');
+  else document.documentElement.removeAttribute(GIRL_MODE_ATTR);
 }
 
 function parseStreamError(status: number, body: string): string {
@@ -98,6 +105,7 @@ export default function Home() {
   const [webSearchPhase, setWebSearchPhase]     = useState<'off' | 'searching' | 'generating'>('off');
   const webSearchPhaseRef = useRef<'off' | 'searching' | 'generating'>('off');
   const [saveHistory, setSaveHistory]           = useState(false);
+  const [girlMode, setGirlMode]                 = useState(false);
   const [showHistory, setShowHistory]           = useState(false);
   const [historyItems, setHistoryItems]         = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading]     = useState(false);
@@ -127,6 +135,7 @@ export default function Home() {
   const keyReadyRef   = useRef<Promise<void>>(new Promise(resolve => { keyResolveRef.current = resolve; }));
   const systemPromptRef = useRef(systemPrompt);
   const saveHistoryRef  = useRef(saveHistory);
+  const girlModeRef     = useRef(girlMode);
 
   useEffect(() => {
     systemPromptRef.current = systemPrompt;
@@ -135,6 +144,10 @@ export default function Home() {
   useEffect(() => {
     saveHistoryRef.current = saveHistory;
   }, [saveHistory]);
+
+  useEffect(() => {
+    girlModeRef.current = girlMode;
+  }, [girlMode]);
 
   useEffect(() => () => {
     if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
@@ -196,11 +209,19 @@ export default function Home() {
     }).catch(() => {});
   };
 
-  const persistSettings = (overrides: { systemPrompt?: string; saveHistory?: boolean; keyJwk?: string | null }, immediate = false) => {
+  const applyGirlMode = (enabled: boolean) => {
+    girlModeRef.current = enabled;
+    setGirlMode(enabled);
+    localStorage.setItem(GIRL_MODE_KEY, enabled ? '1' : '0');
+    setGirlModeDom(enabled);
+  };
+
+  const persistSettings = (overrides: { systemPrompt?: string; saveHistory?: boolean; girlMode?: boolean; keyJwk?: string | null }, immediate = false) => {
     const run = () => {
       const body = JSON.stringify({
         systemPrompt: overrides.systemPrompt ?? systemPromptRef.current,
         saveHistory: overrides.saveHistory ?? saveHistoryRef.current,
+        girlMode: overrides.girlMode ?? girlModeRef.current,
         ...(overrides.keyJwk !== undefined ? { keyJwk: overrides.keyJwk } : {}),
       });
       fetch('/api/settings', {
@@ -234,6 +255,8 @@ export default function Home() {
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
     if (saved) setModel(saved);
+    const savedGirlMode = localStorage.getItem(GIRL_MODE_KEY);
+    if (savedGirlMode === '1' || savedGirlMode === '0') applyGirlMode(savedGirlMode === '1');
 
     const ac = new AbortController();
     fetch('/api/settings', { signal: ac.signal })
@@ -241,16 +264,18 @@ export default function Home() {
         if (!r.ok) throw new Error(`settings_get_${r.status}`);
         return r.json();
       })
-      .then(async ({ systemPrompt, saveHistory: sh, keyJwk }) => {
+      .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, keyJwk }) => {
         setSystemPrompt(systemPrompt ?? '');
         setSaveHistory(Boolean(sh));
+        const girlModeEnabled = Boolean(gm);
+        applyGirlMode(girlModeEnabled);
         // Load or create the encryption key (shared across all deployments via DB)
         const { key, jwk } = await getOrCreateKey(keyJwk ?? null);
         cryptoKeyRef.current = key;
         keyResolveRef.current?.();
         if (jwk) {
           // New key (or migrated from localStorage) — save to server so all deployments use it
-          persistSettings({ systemPrompt: systemPrompt ?? '', saveHistory: sh ?? false, keyJwk: jwk }, true);
+          persistSettings({ systemPrompt: systemPrompt ?? '', saveHistory: sh ?? false, girlMode: girlModeEnabled, keyJwk: jwk }, true);
         }
       })
       .catch(e => {
@@ -358,6 +383,11 @@ export default function Home() {
       localStorage.setItem(KEY_WARNED, '1');
     }
     persistSettings({ saveHistory: val }, true);
+  };
+
+  const handleToggleGirlMode = (val: boolean) => {
+    applyGirlMode(val);
+    persistSettings({ girlMode: val }, true);
   };
 
   const loadHistory = async () => {
@@ -771,9 +801,16 @@ export default function Home() {
           </div>
           <div className="settings-row">
             <label>Save History</label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <label className="settings-toggle">
               <input type="checkbox" checked={saveHistory} onChange={e => handleToggleSaveHistory(e.target.checked)} />
-              <span style={{ fontSize: 12, color: 'var(--dim)' }}>{saveHistory ? 'on — encrypted in this browser' : 'off'}</span>
+              <span className="settings-toggle-copy">{saveHistory ? 'on — encrypted in this browser' : 'off'}</span>
+            </label>
+          </div>
+          <div className="settings-row">
+            <label>Girl Mode</label>
+            <label className="settings-toggle">
+              <input type="checkbox" checked={girlMode} onChange={e => handleToggleGirlMode(e.target.checked)} />
+              <span className="settings-toggle-copy">{girlMode ? 'on — pretty + sparkly' : 'off'}</span>
             </label>
           </div>
           {messages.length > 0 && !streaming && (

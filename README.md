@@ -81,6 +81,7 @@ Add your production Vercel URL to the authorized redirect URIs in Google Cloud C
 - **File inputs** — attach text/code files; contents are inlined as XML-tagged blocks
 - **Web search** — per-request toggle; uses each provider's native search tool
 - **System prompt** — configurable, persisted server-side per user
+- **Girl Mode** — optional pink, sparkly UI theme persisted per user
 - **Encrypted chat history** — saved chats are AES-GCM encrypted client-side; key is stored server-side so it's shared across devices
 - **Shared chats** — generate a shareable read-only URL with OG image preview; authenticated users can fork the chat to continue it
 - **Google OAuth** — restricted to a configurable allowlist of emails

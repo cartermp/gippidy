@@ -160,6 +160,7 @@ export function validateShareRequest(input: unknown): ValidationResult<{
 export function validateSettingsRequest(input: unknown): ValidationResult<{
   systemPrompt: string;
   saveHistory: boolean;
+  girlMode: boolean;
   keyJwk: string | null;
 }> {
   if (!isPlainObject(input)) return fail('invalid request body');
@@ -168,6 +169,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
     return fail('systemPrompt too large', 413);
   }
   if (input.saveHistory !== undefined && typeof input.saveHistory !== 'boolean') return fail('invalid saveHistory');
+  if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');
   if (input.keyJwk !== undefined && input.keyJwk !== null && typeof input.keyJwk !== 'string') return fail('invalid keyJwk');
   if (typeof input.keyJwk === 'string') {
     if (input.keyJwk.length > LIMITS.maxJwkChars) return fail('keyJwk too large', 413);
@@ -182,6 +184,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
   return ok({
     systemPrompt: typeof input.systemPrompt === 'string' ? input.systemPrompt : '',
     saveHistory: input.saveHistory ?? false,
+    girlMode: input.girlMode ?? false,
     keyJwk: typeof input.keyJwk === 'string' ? input.keyJwk : null,
   });
 }

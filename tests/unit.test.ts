@@ -262,6 +262,20 @@ test('parseStreamError: unknown error includes status code', () => {
   assert.ok(parseStreamError(400, 'bad request').includes('400'));
 });
 
+// ── settings validation ────────────────────────────────────────────────────────
+
+test('validateSettingsRequest: validates and defaults girlMode', () => {
+  const source = readFileSync(join(import.meta.dirname, '../lib/validation.ts'), 'utf8');
+  assert.ok(
+    source.includes("if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');"),
+    'validateSettingsRequest should reject non-boolean girlMode values',
+  );
+  assert.ok(
+    source.includes('girlMode: input.girlMode ?? false,'),
+    'validateSettingsRequest should persist girlMode and default it to false',
+  );
+});
+
 // ── SSE chunk parsers ─────────────────────────────────────────────────────────
 
 test('parseOpenAIChunk: extracts delta content', () => {
@@ -503,4 +517,10 @@ test('input-prompt uses padding-top (not padding-bottom) to align with top of te
   const rule = match[1];
 
   assert.ok(!rule.includes('padding-bottom'), '.input-prompt must not use padding-bottom');
+});
+
+test('globals.css defines a girl mode theme with sparkles', () => {
+  const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+  assert.ok(css.includes(":root[data-girl-mode='true']"), 'girl mode theme selector missing');
+  assert.ok(css.includes('--sparkle-opacity'), 'girl mode sparkle variables missing');
 });

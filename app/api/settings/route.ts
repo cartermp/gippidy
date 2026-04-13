@@ -16,7 +16,7 @@ export async function GET(req: Request) {
     }
 
     const result = await query(
-      'SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1',
+      'SELECT system_prompt, save_history, key_jwk, girl_mode FROM user_settings WHERE email = $1',
       [session.user.email],
     );
     const row = result.rows[0];
@@ -26,11 +26,13 @@ export async function GET(req: Request) {
       durationMs: Date.now() - start,
       hasKey: !!row?.key_jwk,
       saveHistory: row?.save_history ?? false,
+      girlMode: row?.girl_mode ?? false,
       newUser: !row,
     }, 'settings.get');
     return jsonResponse({
       systemPrompt: row?.system_prompt ?? '',
       saveHistory: row?.save_history ?? false,
+      girlMode: row?.girl_mode ?? false,
       keyJwk: row?.key_jwk ?? null,
     }, {}, { requestId, cacheControl: PRIVATE_NO_STORE });
   } catch (error) {
@@ -63,18 +65,20 @@ export async function PUT(req: Request) {
     }
 
     await query(
-      `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk) VALUES ($1, $2, $3, $4)
+      `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk, girl_mode) VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (email) DO UPDATE SET
-         system_prompt = EXCLUDED.system_prompt,
-         save_history  = EXCLUDED.save_history,
-         key_jwk       = COALESCE(EXCLUDED.key_jwk, user_settings.key_jwk)`,
-      [session.user.email, parsed.value.systemPrompt, parsed.value.saveHistory, parsed.value.keyJwk],
+          system_prompt = EXCLUDED.system_prompt,
+          save_history  = EXCLUDED.save_history,
+          key_jwk       = COALESCE(EXCLUDED.key_jwk, user_settings.key_jwk),
+          girl_mode     = EXCLUDED.girl_mode`,
+      [session.user.email, parsed.value.systemPrompt, parsed.value.saveHistory, parsed.value.keyJwk, parsed.value.girlMode],
     );
     logger.info({
       requestId,
       user: session.user.email,
       durationMs: Date.now() - start,
       saveHistory: parsed.value.saveHistory,
+      girlMode: parsed.value.girlMode,
       hasKey: !!parsed.value.keyJwk,
     }, 'settings.put');
     return new Response(null, {

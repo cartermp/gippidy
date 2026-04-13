@@ -18,7 +18,9 @@ await pool.query(`
   CREATE TABLE IF NOT EXISTS user_settings (
     email         TEXT PRIMARY KEY,
     system_prompt TEXT NOT NULL DEFAULT '',
-    save_history  BOOLEAN NOT NULL DEFAULT FALSE
+    save_history  BOOLEAN NOT NULL DEFAULT FALSE,
+    key_jwk       TEXT,
+    girl_mode     BOOLEAN NOT NULL DEFAULT FALSE
   )
 `);
 await pool.query(`
@@ -26,6 +28,9 @@ await pool.query(`
 `);
 await pool.query(`
   ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS key_jwk TEXT
+`);
+await pool.query(`
+  ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS girl_mode BOOLEAN NOT NULL DEFAULT FALSE
 `);
 console.log('✓ user_settings table ready');
 
