@@ -351,12 +351,20 @@ test('followup UI wiring hides XML in assistant messages and submits the selecte
     'clicking a followup should immediately submit that followup as the next turn',
   );
   assert.ok(
+    pageSource.includes('setMessages(withRenderedMessages(item.messages));'),
+    'history-loaded chats should still rebuild assistant message rendering on the client',
+  );
+  assert.ok(
     renderedMarkdownSource.includes('className="followup-button"'),
     'RenderedMarkdown should render followups as dedicated themed buttons',
   );
   assert.ok(
     renderedMarkdownSource.includes('followupsEnabled'),
     'RenderedMarkdown should explicitly opt into followup parsing for assistant messages',
+  );
+  assert.ok(
+    renderedMarkdownSource.includes('const preferClientRender = followupsEnabled && text !== undefined;'),
+    'followup rendering should prefer client-side markdown from raw text when followups are enabled',
   );
   assert.ok(
     css.includes('.followup-button'),

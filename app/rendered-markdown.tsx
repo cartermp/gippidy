@@ -21,7 +21,11 @@ function RenderedMarkdown({
     () => followupsEnabled ? splitMessageFollowups(text ?? '') : { content: text ?? '', followups: [] },
     [followupsEnabled, text],
   );
-  const rendered = useMemo(() => html ?? renderMarkdown(content), [html, content]);
+  const preferClientRender = followupsEnabled && text !== undefined;
+  const rendered = useMemo(
+    () => preferClientRender ? renderMarkdown(content) : html ?? renderMarkdown(content),
+    [preferClientRender, html, content],
+  );
 
   const handleClick = async (event: React.MouseEvent<HTMLDivElement>) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-copy-code]');
