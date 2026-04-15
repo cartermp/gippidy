@@ -54,6 +54,12 @@ function parseStreamError(status: number, body: string): string {
   if (status === 429) return '[RATE LIMITED] Wait a moment and try again.';
   if (status === 401 || status === 403) return '[AUTH ERROR] API key issue — contact the admin.';
   const b = body.toLowerCase();
+  if (status === 408 || status === 504 || b.includes('timeout') || b.includes('timed out')) {
+    return '[TIMEOUT] The model took too long to respond. Try again.';
+  }
+  if (status === 413 || b.includes('request too large') || b.includes('too large')) {
+    return '[TOO LARGE] That message or attachment is too large. Try a shorter message or smaller files.';
+  }
   if (
     b.includes('context_length_exceeded') ||
     b.includes('maximum context length') ||
@@ -61,8 +67,29 @@ function parseStreamError(status: number, body: string): string {
     b.includes('tokens exceed') ||
     b.includes('reduce your prompt')
   ) return '[TOO LONG] Conversation exceeds this model\'s context limit. Use [CLEAR] to start fresh.';
+  if (status === 400) return '[REQUEST ERROR] That request could not be processed. Try shortening it or starting a new chat.';
+  if (status === 404 || status === 405) return '[APP ERROR] The chat service is unavailable right now. Refresh and try again.';
   if (status >= 500) return `[SERVER ERROR] The model returned an error (${status}). Try again.`;
-  return `[ERROR ${status}] ${body.slice(0, 120)}`;
+  return `[ERROR ${status}] Something went wrong. Try again.`;
+}
+
+function parseClientError(error: unknown): string {
+  const name = error instanceof Error ? error.name : '';
+  const message = error instanceof Error ? error.message : String(error);
+  const detail = `${name} ${message}`.toLowerCase();
+
+  if (
+    detail.includes('network') ||
+    detail.includes('failed to fetch') ||
+    detail.includes('load failed') ||
+    detail.includes('network request failed')
+  ) return '[NETWORK ERROR] Could not reach the server. Check your connection and try again.';
+
+  if (detail.includes('timeout') || detail.includes('timed out')) {
+    return '[TIMEOUT] The request took too long. Try again.';
+  }
+
+  return '[ERROR] Something went wrong while sending that message. Try again.';
 }
 
 function readImageFiles(files: File[], onEach: (img: Image) => void) {
@@ -699,8 +726,10 @@ export default function Home() {
         if (partial) finalize(partial); // preserve whatever arrived before STOP
         return;
       }
-      logClientEvent('chat.stream_failed', 'error');
-      const errMsg = `[ERROR] ${String(err)}`;
+      const errName = err instanceof Error ? err.name : null;
+      const errMessage = err instanceof Error ? err.message : String(err);
+      logClientEvent('chat.stream_failed', 'error', { name: errName, message: errMessage });
+      const errMsg = parseClientError(err);
       if (partial) {
         finalize(partial + '\n\n' + errMsg);
       } else {

@@ -9,6 +9,12 @@ function parseStreamError(status: number, body: string): string {
   if (status === 429) return '[RATE LIMITED] Wait a moment and try again.';
   if (status === 401 || status === 403) return '[AUTH ERROR] API key issue — contact the admin.';
   const b = body.toLowerCase();
+  if (status === 408 || status === 504 || b.includes('timeout') || b.includes('timed out')) {
+    return '[TIMEOUT] The model took too long to respond. Try again.';
+  }
+  if (status === 413 || b.includes('request too large') || b.includes('too large')) {
+    return '[TOO LARGE] That message or attachment is too large. Try a shorter message or smaller files.';
+  }
   if (
     b.includes('context_length_exceeded') ||
     b.includes('maximum context length') ||
@@ -16,8 +22,29 @@ function parseStreamError(status: number, body: string): string {
     b.includes('tokens exceed') ||
     b.includes('reduce your prompt')
   ) return "[TOO LONG] Conversation exceeds this model's context limit. Use [CLEAR] to start fresh.";
+  if (status === 400) return '[REQUEST ERROR] That request could not be processed. Try shortening it or starting a new chat.';
+  if (status === 404 || status === 405) return '[APP ERROR] The chat service is unavailable right now. Refresh and try again.';
   if (status >= 500) return `[SERVER ERROR] The model returned an error (${status}). Try again.`;
-  return `[ERROR ${status}] ${body.slice(0, 120)}`;
+  return `[ERROR ${status}] Something went wrong. Try again.`;
+}
+
+function parseClientError(error: unknown): string {
+  const name = error instanceof Error ? error.name : '';
+  const message = error instanceof Error ? error.message : String(error);
+  const detail = `${name} ${message}`.toLowerCase();
+
+  if (
+    detail.includes('network') ||
+    detail.includes('failed to fetch') ||
+    detail.includes('load failed') ||
+    detail.includes('network request failed')
+  ) return '[NETWORK ERROR] Could not reach the server. Check your connection and try again.';
+
+  if (detail.includes('timeout') || detail.includes('timed out')) {
+    return '[TIMEOUT] The request took too long. Try again.';
+  }
+
+  return '[ERROR] Something went wrong while sending that message. Try again.';
 }
 
 // ── getProvider ──────────────────────────────────────────────────────────────
@@ -258,8 +285,37 @@ test('parseStreamError: 500 → server error message', () => {
   assert.ok(parseStreamError(500, 'internal error').includes('SERVER ERROR'));
 });
 
+test('parseStreamError: 413 → too large message', () => {
+  assert.ok(parseStreamError(413, 'Request too large').includes('TOO LARGE'));
+});
+
+test('parseStreamError: generic 400 → request error message', () => {
+  assert.ok(parseStreamError(400, 'bad request').includes('REQUEST ERROR'));
+});
+
+test('parseClientError: network failures become friendly network errors', () => {
+  assert.ok(parseClientError(new TypeError('network error')).includes('NETWORK ERROR'));
+  assert.ok(parseClientError(new TypeError('Failed to fetch')).includes('NETWORK ERROR'));
+});
+
+test('parseClientError: timeout failures become timeout errors', () => {
+  assert.ok(parseClientError(new Error('request timed out')).includes('TIMEOUT'));
+});
+
 test('parseStreamError: unknown error includes status code', () => {
-  assert.ok(parseStreamError(400, 'bad request').includes('400'));
+  assert.ok(parseStreamError(418, 'teapot').includes('418'));
+});
+
+test('page source uses friendly client error formatting instead of raw String(err)', () => {
+  const source = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  assert.ok(
+    source.includes('const errMsg = parseClientError(err);'),
+    'chat stream failures should use the friendly client error formatter',
+  );
+  assert.ok(
+    !source.includes('const errMsg = `[ERROR] ${String(err)}`;'),
+    'chat stream failures should not show raw browser error strings to the user',
+  );
 });
 
 // ── settings validation ────────────────────────────────────────────────────────
