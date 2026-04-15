@@ -15,13 +15,20 @@ type PendingPdf  = Pdf;
 const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
 const GIRL_MODE_KEY = 'gippidy-girl-mode';
+const ACTIVE_HISTORY_CHAT_KEY = 'gippidy-active-history-chat';
 const GIRL_MODE_ATTR = 'data-girl-mode';
 const STREAM_MARKDOWN_INTERVAL_MS = 120;
-const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
+const FOLLOWUPS_XML_SYSTEM_PROMPT = 'IF AND ONLY IF you suggest follow-up topics for conversation, wrap the text of those topics in a field called <followups>, with each individual topic wrapped in <followup> tags.';
+const NORMAL_DEFAULT_SYSTEM_PROMPT = FOLLOWUPS_XML_SYSTEM_PROMPT;
+const LEGACY_GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
   "You are the user's super talky, supportive mid-2000s girlfriend in the best-friend sense - the girl she confides in all the time.",
   "Answer like a warm, sparkly, emotionally tuned-in bestie: chatty, encouraging, a little dramatic in a fun way, and genuinely helpful.",
   "Use casual phrases like 'girl', 'oh my gosh', 'okay wait', 'literally', and 'honestly' when they fit, but keep the advice clear and useful.",
   "Assume the user is a girl talking to a trusted girl friend. Be kind, validating, practical, and on her side. Prioritize helpful answers over roleplay.",
+].join(' ');
+const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
+  LEGACY_GIRL_MODE_DEFAULT_SYSTEM_PROMPT,
+  FOLLOWUPS_XML_SYSTEM_PROMPT,
 ].join(' ');
 
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
@@ -57,9 +64,18 @@ function setGirlModeDom(enabled: boolean) {
   else document.documentElement.removeAttribute(GIRL_MODE_ATTR);
 }
 
+function isBuiltInDefaultSystemPrompt(prompt: string): boolean {
+  return (
+    prompt === '' ||
+    prompt === NORMAL_DEFAULT_SYSTEM_PROMPT ||
+    prompt === LEGACY_GIRL_MODE_DEFAULT_SYSTEM_PROMPT ||
+    prompt === GIRL_MODE_DEFAULT_SYSTEM_PROMPT
+  );
+}
+
 function resolveDefaultSystemPrompt(prompt: string, girlModeEnabled: boolean): string {
-  if (prompt !== '' && prompt !== GIRL_MODE_DEFAULT_SYSTEM_PROMPT) return prompt;
-  return girlModeEnabled ? GIRL_MODE_DEFAULT_SYSTEM_PROMPT : '';
+  if (!isBuiltInDefaultSystemPrompt(prompt)) return prompt;
+  return girlModeEnabled ? GIRL_MODE_DEFAULT_SYSTEM_PROMPT : NORMAL_DEFAULT_SYSTEM_PROMPT;
 }
 
 function parseStreamError(status: number, body: string): string {
@@ -138,7 +154,7 @@ export default function Home() {
   const [messages, setMessages]                 = useState<Message[]>([]);
   const [input, setInput]                       = useState('');
   const [model, setModel]                       = useState('claude-sonnet-4-6');
-  const [systemPrompt, setSystemPrompt]         = useState('');
+  const [systemPrompt, setSystemPrompt]         = useState(NORMAL_DEFAULT_SYSTEM_PROMPT);
   const [streaming, setStreaming]               = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingHtml, setStreamingHtml]       = useState('');
@@ -272,6 +288,21 @@ export default function Home() {
     setGirlModeDom(enabled);
   };
 
+  const rememberActiveHistoryChat = (id: string | null) => {
+    if (id) localStorage.setItem(ACTIVE_HISTORY_CHAT_KEY, id);
+    else localStorage.removeItem(ACTIVE_HISTORY_CHAT_KEY);
+  };
+
+  const applyLoadedChat = (item: HistoryItem) => {
+    setMessages(withRenderedMessages(item.messages));
+    setModel(item.model);
+    localStorage.setItem(MODEL_KEY, item.model);
+    systemPromptRef.current = item.systemPrompt ?? '';
+    setSystemPrompt(item.systemPrompt ?? '');
+    chatIdRef.current = item.id;
+    rememberActiveHistoryChat(item.id);
+  };
+
   const rememberPendingSettings = (patch: PendingSettings) => {
     if (initialSettingsLoadedRef.current) return;
     pendingSettingsRef.current = { ...pendingSettingsRef.current, ...patch };
@@ -315,11 +346,72 @@ export default function Home() {
       return false;
     });
 
+  const fetchHistoryItems = async (): Promise<HistoryItem[] | null> => {
+    const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
+    await Promise.race([keyReadyRef.current, keyTimeout]);
+    const key = cryptoKeyRef.current;
+    if (!key) {
+      logClientEvent('history.key_unavailable', 'error');
+      return null;
+    }
+    const res = await fetch('/api/history');
+    if (!res.ok) {
+      logClientEvent('history.fetch_failed', 'error', {
+        status: res.status,
+        requestId: res.headers.get('x-request-id'),
+      });
+      return null;
+    }
+    const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
+    const ordered = Array<HistoryItem | null>(rows.length).fill(null);
+    let failed = 0;
+    let firstFailedId: string | null = null;
+    await Promise.allSettled(rows.map(async (row, i) => {
+      try {
+        const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
+        ordered[i] = { id: row.id, updatedAt: row.updated_at, ...data };
+      } catch {
+        failed++;
+        if (!firstFailedId) firstFailedId = row.id;
+      }
+    }));
+    if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length, firstFailedId });
+    return ordered.filter((item): item is HistoryItem => Boolean(item));
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
     if (saved) setModel(saved);
     const savedGirlMode = localStorage.getItem(GIRL_MODE_KEY);
-    if (savedGirlMode === '1' || savedGirlMode === '0') applyGirlMode(savedGirlMode === '1');
+    const activeHistoryChatId = localStorage.getItem(ACTIVE_HISTORY_CHAT_KEY);
+    if (savedGirlMode === '1' || savedGirlMode === '0') {
+      const savedGirlModeEnabled = savedGirlMode === '1';
+      applyGirlMode(savedGirlModeEnabled);
+      const nextPrompt = resolveDefaultSystemPrompt(systemPromptRef.current, savedGirlModeEnabled);
+      if (nextPrompt !== systemPromptRef.current) {
+        systemPromptRef.current = nextPrompt;
+        setSystemPrompt(nextPrompt);
+      }
+    }
+
+    const fork = localStorage.getItem('gippidy-fork');
+    localStorage.removeItem('gippidy-fork');
+    let restoredFork = false;
+    if (fork) {
+      try {
+        const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
+        setMessages(withRenderedMessages(m));
+        setModel(mo);
+        localStorage.setItem(MODEL_KEY, mo);
+        systemPromptRef.current = sp ?? '';
+        setSystemPrompt(sp ?? '');
+        chatIdRef.current = null; // fork always starts a new history entry
+        rememberActiveHistoryChat(null);
+        restoredFork = true;
+      } catch {
+        logClientEvent('fork.parse_failed', 'warn');
+      }
+    }
 
     const ac = new AbortController();
     fetch('/api/settings', { signal: ac.signal })
@@ -350,6 +442,14 @@ export default function Home() {
           // New key (or migrated from localStorage) — save to server so all deployments use it
           persistSettings({ keyJwk: jwk }, true);
         }
+        if (!restoredFork && activeHistoryChatId) {
+          const items = await fetchHistoryItems();
+          if (!items) return;
+          setHistoryItems(items);
+          const activeItem = items.find(item => item.id === activeHistoryChatId);
+          if (activeItem) applyLoadedChat(activeItem);
+          else rememberActiveHistoryChat(null);
+        }
       })
       .catch(e => {
         if (e.name !== 'AbortError') {
@@ -358,21 +458,6 @@ export default function Home() {
           keyResolveRef.current?.();
         }
       });
-
-    const fork = localStorage.getItem('gippidy-fork');
-    localStorage.removeItem('gippidy-fork');
-    if (fork) {
-      try {
-        const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
-        setMessages(withRenderedMessages(m));
-        setModel(mo);
-        localStorage.setItem(MODEL_KEY, mo);
-        setSystemPrompt(sp ?? '');
-        chatIdRef.current = null; // fork always starts a new history entry
-      } catch {
-        logClientEvent('fork.parse_failed', 'warn');
-      }
-    }
     return () => ac.abort();
   }, []);
 
@@ -483,38 +568,9 @@ export default function Home() {
     setHistoryLoading(true);
     setHistoryItems([]);
     try {
-      // Race the key promise against a 5 s timeout so a stalled importKey
-      // (e.g. malformed JWK) never hangs the UI forever.
-      const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
-      await Promise.race([keyReadyRef.current, keyTimeout]);
-      const key = cryptoKeyRef.current;
-      if (!key) {
-        logClientEvent('history.key_unavailable', 'error');
-        return;
-      }
-      const res = await fetch('/api/history');
-      if (!res.ok) {
-        logClientEvent('history.fetch_failed', 'error', {
-          status: res.status,
-          requestId: res.headers.get('x-request-id'),
-        });
-        return;
-      }
-      const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
-      const ordered = Array<HistoryItem | null>(rows.length).fill(null);
-      let failed = 0;
-      let firstFailedId: string | null = null;
-      await Promise.allSettled(rows.map(async (row, i) => {
-        try {
-          const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
-          ordered[i] = { id: row.id, updatedAt: row.updated_at, ...data };
-          setHistoryItems(ordered.filter((item): item is HistoryItem => Boolean(item)));
-        } catch {
-          failed++;
-          if (!firstFailedId) firstFailedId = row.id;
-        }
-      }));
-      if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length, firstFailedId });
+      const items = await fetchHistoryItems();
+      if (!items) return;
+      setHistoryItems(items);
     } catch {
       logClientEvent('history.load_failed', 'error');
       setHistoryItems([]);
@@ -530,11 +586,7 @@ export default function Home() {
   };
 
   const handleLoadChat = (item: HistoryItem) => {
-    setMessages(withRenderedMessages(item.messages));
-    setModel(item.model);
-    localStorage.setItem(MODEL_KEY, item.model);
-    setSystemPrompt(item.systemPrompt ?? '');
-    chatIdRef.current = item.id;
+    applyLoadedChat(item);
     setShowHistory(false);
   };
 
@@ -548,7 +600,10 @@ export default function Home() {
       return;
     }
     setHistoryItems(items => items.filter(i => i.id !== id));
-    if (chatIdRef.current === id) chatIdRef.current = null;
+    if (chatIdRef.current === id) {
+      chatIdRef.current = null;
+      rememberActiveHistoryChat(null);
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -653,6 +708,7 @@ export default function Home() {
             }
             const { id } = await res.json();
             chatIdRef.current = id;
+            rememberActiveHistoryChat(id);
             setSavedFlash(true);
             setTimeout(() => setSavedFlash(false), 2000);
           } catch {
@@ -872,7 +928,7 @@ export default function Home() {
             <button onClick={handleShare}>{shareLabel}</button>
           )}
           {messages.length > 0 && (
-            <button onClick={() => { setMessages([]); chatIdRef.current = null; }}>[CLEAR]</button>
+            <button onClick={() => { setMessages([]); chatIdRef.current = null; rememberActiveHistoryChat(null); }}>[CLEAR]</button>
           )}
           <button onClick={() => signOut({ callbackUrl: '/login' })}>[SIGN OUT]</button>
         </div>

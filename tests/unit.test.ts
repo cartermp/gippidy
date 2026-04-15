@@ -372,6 +372,38 @@ test('followup UI wiring hides XML in assistant messages and submits the selecte
   );
 });
 
+test('history-loaded chats persist across refreshes and clear correctly', () => {
+  const source = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  assert.ok(
+    source.includes("const ACTIVE_HISTORY_CHAT_KEY = 'gippidy-active-history-chat';"),
+    'page should define a dedicated localStorage key for the active saved chat',
+  );
+  assert.ok(
+    source.includes('const activeHistoryChatId = localStorage.getItem(ACTIVE_HISTORY_CHAT_KEY);'),
+    'page should read the active saved chat id during startup',
+  );
+  assert.ok(
+    source.includes('if (!restoredFork && activeHistoryChatId) {'),
+    'history restore should only run when a forked chat is not taking over startup',
+  );
+  assert.ok(
+    source.includes('const activeItem = items.find(item => item.id === activeHistoryChatId);'),
+    'page should look up the saved chat that was active before refresh',
+  );
+  assert.ok(
+    source.includes('if (activeItem) applyLoadedChat(activeItem);'),
+    'page should rehydrate the previously active saved chat after refresh',
+  );
+  assert.ok(
+    source.includes('rememberActiveHistoryChat(id);'),
+    'saving or loading a chat should persist the active saved chat id',
+  );
+  assert.ok(
+    source.includes('rememberActiveHistoryChat(null);'),
+    'clearing, deleting, or forking away from a saved chat should clear the persisted selection',
+  );
+});
+
 // ── settings validation ────────────────────────────────────────────────────────
 
 test('validateSettingsRequest: validates and defaults girlMode', () => {
@@ -433,16 +465,36 @@ test('page source merges local settings changes before initial settings hydrate 
 test('Girl Mode defaults the system prompt to the chatty bestie preset', () => {
   const source = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
   assert.ok(
+    source.includes('const FOLLOWUPS_XML_SYSTEM_PROMPT ='),
+    'default system prompts should define the shared followup XML instruction',
+  );
+  assert.ok(
+    source.includes('const NORMAL_DEFAULT_SYSTEM_PROMPT = FOLLOWUPS_XML_SYSTEM_PROMPT;'),
+    'normal mode should have a built-in default system prompt',
+  );
+  assert.ok(
+    source.includes('const LEGACY_GIRL_MODE_DEFAULT_SYSTEM_PROMPT = ['),
+    'Girl Mode should preserve the legacy prompt so existing saved defaults can migrate cleanly',
+  );
+  assert.ok(
     source.includes('const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = ['),
     'Girl Mode should define a dedicated default system prompt preset',
   );
   assert.ok(
-    source.includes("return girlModeEnabled ? GIRL_MODE_DEFAULT_SYSTEM_PROMPT : '';"),
-    'the default system prompt helper should swap between the Girl Mode preset and the plain default',
+    source.includes("return girlModeEnabled ? GIRL_MODE_DEFAULT_SYSTEM_PROMPT : NORMAL_DEFAULT_SYSTEM_PROMPT;"),
+    'the default system prompt helper should swap between the Girl Mode preset and the normal default',
+  );
+  assert.ok(
+    source.includes('prompt === LEGACY_GIRL_MODE_DEFAULT_SYSTEM_PROMPT'),
+    'the default system prompt helper should recognize the old Girl Mode default prompt',
   );
   assert.ok(
     source.includes('const nextPrompt = resolveDefaultSystemPrompt(previousPrompt, val);'),
     'toggling Girl Mode should recalculate the default system prompt',
+  );
+  assert.ok(
+    source.includes('IF AND ONLY IF you suggest follow-up topics for conversation'),
+    'the default system prompts should instruct the model to emit followups XML only when suggesting follow-up topics',
   );
 });
 
