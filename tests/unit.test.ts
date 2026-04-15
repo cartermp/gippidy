@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, parseOpenAIChunk, parseAnthropicChunk, parseGeminiChunk, parseOpenAIResponsesChunk } from '../lib/chat.ts';
+import { getProvider, toOpenAIMessages, toAnthropicMessages, toGeminiContents, parseOpenAIChunk, parseAnthropicChunk, parseGeminiChunk, parseOpenAIResponsesChunk, splitMessageFollowups } from '../lib/chat.ts';
 import { renderMarkdown } from '../lib/markdown.ts';
 import { getOrCreateKey, encrypt, decrypt } from '../lib/crypto.ts';
 
@@ -204,6 +204,21 @@ test('toGeminiContents: PDF + image together — PDF first, then image, then tex
   assert.deepEqual(out[0].parts[2], { text: 'read both' });
 });
 
+test('splitMessageFollowups: strips the trailing followups block and returns followup buttons', () => {
+  const parsed = splitMessageFollowups(
+    'Main answer.\n\n<followups><followup>First follow-up.</followup><followup>Second follow-up.</followup></followups>',
+  );
+  assert.equal(parsed.content, 'Main answer.');
+  assert.deepEqual(parsed.followups, ['First follow-up.', 'Second follow-up.']);
+});
+
+test('splitMessageFollowups: ignores followups tags that are not at the end of the message', () => {
+  const content = '<followups><followup>Example</followup></followups>\nStill part of the visible message.';
+  const parsed = splitMessageFollowups(content);
+  assert.equal(parsed.content, content);
+  assert.deepEqual(parsed.followups, []);
+});
+
 // ── renderMarkdown ───────────────────────────────────────────────────────────
 
 test('renderMarkdown: bold', () => {
@@ -315,6 +330,37 @@ test('page source uses friendly client error formatting instead of raw String(er
   assert.ok(
     !source.includes('const errMsg = `[ERROR] ${String(err)}`;'),
     'chat stream failures should not show raw browser error strings to the user',
+  );
+});
+
+test('followup UI wiring hides XML in assistant messages and submits the selected followup', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const renderedMarkdownSource = readFileSync(join(import.meta.dirname, '../app/rendered-markdown.tsx'), 'utf8');
+  const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+
+  assert.ok(
+    pageSource.includes('const requestMessages = toConversationMessages(msgs);'),
+    'assistant followup XML should be stripped before sending prior assistant messages back to the model',
+  );
+  assert.ok(
+    pageSource.includes('const handleFollowupClick = async (followup: string) => {'),
+    'the page should expose a click handler that submits a selected followup',
+  );
+  assert.ok(
+    pageSource.includes('await submitTurn(followup);'),
+    'clicking a followup should immediately submit that followup as the next turn',
+  );
+  assert.ok(
+    renderedMarkdownSource.includes('className="followup-button"'),
+    'RenderedMarkdown should render followups as dedicated themed buttons',
+  );
+  assert.ok(
+    renderedMarkdownSource.includes('followupsEnabled'),
+    'RenderedMarkdown should explicitly opt into followup parsing for assistant messages',
+  );
+  assert.ok(
+    css.includes('.followup-button'),
+    'globals.css should include styling for the followup buttons',
   );
 });
 

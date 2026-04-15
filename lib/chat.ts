@@ -4,10 +4,28 @@ export type Pdf     = { name: string; data: string };            // base64, appl
 export type Message = { role: Role; content: string; html?: string; images?: Image[]; pdfs?: Pdf[] };
 export type Provider = 'openai' | 'anthropic' | 'google';
 
+const FOLLOWUPS_BLOCK_RE = /(?:\r?\n|\s)*<followups>([\s\S]*?)<\/followups>\s*$/i;
+const FOLLOWUP_RE = /<followup>([\s\S]*?)<\/followup>/gi;
+
 export function getProvider(model: string): Provider {
   if (model.startsWith('claude')) return 'anthropic';
   if (model.startsWith('gemini')) return 'google';
   return 'openai';
+}
+
+export function splitMessageFollowups(content: string): { content: string; followups: string[] } {
+  const match = content.match(FOLLOWUPS_BLOCK_RE);
+  if (!match) return { content, followups: [] };
+
+  const followups = Array.from(match[1].matchAll(FOLLOWUP_RE))
+    .map(([, followup]) => followup.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (followups.length === 0) return { content, followups: [] };
+
+  return {
+    content: content.slice(0, match.index).trimEnd(),
+    followups,
+  };
 }
 
 export function toOpenAIMessages(messages: Message[], systemPrompt?: string) {

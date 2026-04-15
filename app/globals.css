@@ -247,6 +247,9 @@ header select option {
     flex-wrap: wrap;
     justify-content: flex-end;
   }
+  .followup-button {
+    width: 100%;
+  }
   header button, header select {
     font-size: 11px;
     padding: 2px 5px;
@@ -609,6 +612,48 @@ header select option {
 
 .message.user .content      { color: var(--fg); }
 .message.assistant .content { color: var(--assistant-fg); }
+
+.followup-list {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--divider-soft);
+}
+
+.followup-heading {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+
+.followup-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.followup-button {
+  background: var(--surface-muted);
+  color: var(--assistant-fg);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: var(--panel-shadow);
+}
+
+.followup-button:hover {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.followup-button:focus {
+  outline: none;
+  border-color: var(--green);
+}
 
 .cursor {
   animation: blink 1s step-end infinite;

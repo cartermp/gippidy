@@ -92,7 +92,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
                     </div>
                   )}
                   {msg.role === 'assistant'
-                    ? <RenderedMarkdown text={msg.content} />
+                    ? <RenderedMarkdown text={msg.content} followupsEnabled />
                     : msg.content && <RenderedMarkdown text={msg.content} />
                   }
                 </div>

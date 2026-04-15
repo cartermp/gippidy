@@ -6,7 +6,7 @@ import RenderedMarkdown from './rendered-markdown';
 import { renderMarkdown } from '@/lib/markdown';
 import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
 import { MODELS } from '@/lib/models';
-import type { Role, Image, Pdf, Message } from '@/lib/chat';
+import { splitMessageFollowups, type Role, type Image, type Pdf, type Message } from '@/lib/chat';
 import { LIMITS } from '@/lib/validation';
 
 type PendingFile = { name: string; content: string };         // text/code files
@@ -29,7 +29,11 @@ type SettingsPatch = { systemPrompt?: string; saveHistory?: boolean; girlMode?: 
 type PendingSettings = Omit<SettingsPatch, 'keyJwk'>;
 
 function withRenderedHtml(message: Message): Message {
-  return message.content ? { ...message, html: renderMarkdown(message.content) } : message;
+  if (!message.content) return message;
+  const displayContent = message.role === 'assistant'
+    ? splitMessageFollowups(message.content).content
+    : message.content;
+  return { ...message, html: renderMarkdown(displayContent) };
 }
 
 function withRenderedMessages(messages: Message[]): Message[] {
@@ -38,6 +42,14 @@ function withRenderedMessages(messages: Message[]): Message[] {
 
 function stripMessageHtml(messages: Message[]): Array<Omit<Message, 'html'>> {
   return messages.map(({ html: _html, ...message }) => message);
+}
+
+function toConversationMessages(messages: Message[]): Array<Omit<Message, 'html'>> {
+  return stripMessageHtml(messages).map(message => (
+    message.role === 'assistant'
+      ? { ...message, content: splitMessageFollowups(message.content).content }
+      : message
+  ));
 }
 
 function setGirlModeDom(enabled: boolean) {
@@ -200,7 +212,8 @@ export default function Home() {
   const renderStreamingMarkdown = (text: string) => {
     lastRenderedStreamingTextRef.current = text;
     startTransition(() => {
-      setStreamingHtml(text ? renderMarkdown(text) : '');
+      const displayText = splitMessageFollowups(text).content;
+      setStreamingHtml(displayText ? renderMarkdown(displayText) : '');
     });
   };
 
@@ -582,7 +595,7 @@ export default function Home() {
     const SMOOTH_RATE = 3;
     const requestModel = model;
     const requestSystemPrompt = systemPrompt;
-    const requestMessages = stripMessageHtml(msgs);
+    const requestMessages = toConversationMessages(msgs);
 
     setMessages(msgs);
     setStreaming(true);
@@ -738,13 +751,11 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if ((!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0) || streaming) return;
-
+  const submitTurn = async (nextInput?: string) => {
+    if ((!((nextInput ?? input).trim()) && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0) || streaming) return;
     textareaRef.current?.focus();
 
-    const trimmed = input.trim();
+    const trimmed = (nextInput ?? input).trim();
     if (trimmed) {
       inputHistoryRef.current = [trimmed, ...inputHistoryRef.current].slice(0, 50);
       historyIndexRef.current = -1;
@@ -771,6 +782,15 @@ export default function Home() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     await doStream([...messages, userMessage], currentWebSearch);
+  };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    await submitTurn();
+  };
+
+  const handleFollowupClick = async (followup: string) => {
+    await submitTurn(followup);
   };
 
   const handleRetry = () => doStream(withRenderedMessages(messages.slice(0, -1)));
@@ -826,7 +846,8 @@ export default function Home() {
     const date = new Date().toISOString().slice(0, 10);
     const lines: string[] = [`# Chat — ${date}`, ``, `**Model:** ${modelLabel}`, ``];
     for (const msg of messages) {
-      lines.push(`---`, ``, `**${msg.role === 'user' ? 'User' : 'Assistant'}:**`, ``, msg.content, ``);
+      const displayContent = msg.role === 'assistant' ? splitMessageFollowups(msg.content).content : msg.content;
+      lines.push(`---`, ``, `**${msg.role === 'user' ? 'User' : 'Assistant'}:**`, ``, displayContent, ``);
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
     const url  = URL.createObjectURL(blob);
@@ -951,7 +972,12 @@ export default function Home() {
                   {editingIndex === null && (
                     <div className="msg-actions">
                       {msg.role === 'assistant' && (
-                        <button className="msg-copy-btn" type="button" aria-label="Copy output as markdown" onClick={() => copyMessage(msg.content, i)}>
+                        <button
+                          className="msg-copy-btn"
+                          type="button"
+                          aria-label="Copy output as markdown"
+                          onClick={() => copyMessage(splitMessageFollowups(msg.content).content, i)}
+                        >
                           {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
                         </button>
                       )}
@@ -989,7 +1015,12 @@ export default function Home() {
                       </div>
                     ) : (
                       msg.role === 'assistant'
-                        ? <RenderedMarkdown text={msg.content} html={msg.html} />
+                        ? <RenderedMarkdown
+                            text={msg.content}
+                            html={msg.html}
+                            followupsEnabled
+                            onFollowup={!streaming && i === messages.length - 1 ? handleFollowupClick : undefined}
+                          />
                         : msg.content && <RenderedMarkdown text={msg.content} html={msg.html} />
                     )}
                   </div>
@@ -1006,7 +1037,12 @@ export default function Home() {
                 <div className="message-body">
                   <span className="role">#</span>
                   {streamingContent
-                    ? <RenderedMarkdown html={streamingHtml || undefined} text={streamingHtml ? '' : streamingContent} className="content" />
+                    ? <RenderedMarkdown
+                        html={streamingHtml || undefined}
+                        text={streamingContent}
+                        className="content"
+                        followupsEnabled
+                      />
                     : <span className="content thinking">
                         {!connected
                           ? <span className="waiting-cursor">▋</span>
