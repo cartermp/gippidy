@@ -32,6 +32,11 @@ const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
 ].join(' ');
 
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
+type HistoryRow = { id: string; iv: string; ciphertext: string; updated_at: string };
+type HistoryRestoreResult =
+  | { kind: 'ok'; item: HistoryItem }
+  | { kind: 'missing' }
+  | { kind: 'error' };
 type SettingsPatch = { systemPrompt?: string; saveHistory?: boolean; girlMode?: boolean; keyJwk?: string | null };
 type PendingSettings = Omit<SettingsPatch, 'keyJwk'>;
 
@@ -118,6 +123,13 @@ function parseClientError(error: unknown): string {
   }
 
   return '[ERROR] Something went wrong while sending that message. Try again.';
+}
+
+function getClientErrorDetails(error: unknown): { name: string | null; message: string } {
+  return {
+    name: error instanceof Error ? error.name : null,
+    message: error instanceof Error ? error.message : String(error),
+  };
 }
 
 function readImageFiles(files: File[], onEach: (img: Image) => void) {
@@ -362,7 +374,7 @@ export default function Home() {
       });
       return null;
     }
-    const rows = await res.json() as { id: string; iv: string; ciphertext: string; updated_at: string }[];
+    const rows = await res.json() as HistoryRow[];
     const ordered = Array<HistoryItem | null>(rows.length).fill(null);
     let failed = 0;
     let firstFailedId: string | null = null;
@@ -377,6 +389,48 @@ export default function Home() {
     }));
     if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length, firstFailedId });
     return ordered.filter((item): item is HistoryItem => Boolean(item));
+  };
+
+  const fetchHistoryItem = async (id: string): Promise<HistoryRestoreResult> => {
+    const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
+    await Promise.race([keyReadyRef.current, keyTimeout]);
+    const key = cryptoKeyRef.current;
+    if (!key) {
+      logClientEvent('history.key_unavailable', 'error', { id });
+      return { kind: 'error' };
+    }
+    try {
+      const res = await fetch(`/api/history/${encodeURIComponent(id)}`);
+      if (res.status === 404) {
+        logClientEvent('history.restore_missing', 'warn', {
+          id,
+          requestId: res.headers.get('x-request-id'),
+        });
+        return { kind: 'missing' };
+      }
+      if (!res.ok) {
+        logClientEvent('history.restore_fetch_failed', 'warn', {
+          id,
+          status: res.status,
+          requestId: res.headers.get('x-request-id'),
+        });
+        return { kind: 'error' };
+      }
+      const row = await res.json() as HistoryRow;
+      try {
+        const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
+        return { kind: 'ok', item: { id: row.id, updatedAt: row.updated_at, ...data } };
+      } catch {
+        logClientEvent('history.restore_decrypt_failed', 'warn', { id });
+        return { kind: 'error' };
+      }
+    } catch (error) {
+      logClientEvent('history.restore_fetch_failed', 'error', {
+        id,
+        ...getClientErrorDetails(error),
+      });
+      return { kind: 'error' };
+    }
   };
 
   useEffect(() => {
@@ -443,18 +497,20 @@ export default function Home() {
           persistSettings({ keyJwk: jwk }, true);
         }
         if (!restoredFork && activeHistoryChatId) {
-          const items = await fetchHistoryItems();
-          if (!items) return;
-          setHistoryItems(items);
-          const activeItem = items.find(item => item.id === activeHistoryChatId);
-          if (activeItem) applyLoadedChat(activeItem);
-          else rememberActiveHistoryChat(null);
+          const restored = await fetchHistoryItem(activeHistoryChatId);
+          if (restored.kind === 'ok') applyLoadedChat(restored.item);
+          else if (restored.kind === 'missing') rememberActiveHistoryChat(null);
         }
       })
-      .catch(e => {
-        if (e.name !== 'AbortError') {
+      .catch(error => {
+        const { name, message } = getClientErrorDetails(error);
+        if (name !== 'AbortError') {
           initialSettingsLoadedRef.current = true;
-          logClientEvent('settings.load_failed', 'error');
+          logClientEvent('settings.load_failed', 'error', {
+            name,
+            message,
+            activeHistoryChatId,
+          });
           keyResolveRef.current?.();
         }
       });
@@ -571,8 +627,8 @@ export default function Home() {
       const items = await fetchHistoryItems();
       if (!items) return;
       setHistoryItems(items);
-    } catch {
-      logClientEvent('history.load_failed', 'error');
+    } catch (error) {
+      logClientEvent('history.load_failed', 'error', getClientErrorDetails(error));
       setHistoryItems([]);
     } finally {
       setHistoryLoading(false);

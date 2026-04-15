@@ -374,6 +374,7 @@ test('followup UI wiring hides XML in assistant messages and submits the selecte
 
 test('history-loaded chats persist across refreshes and clear correctly', () => {
   const source = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const historyItemRouteSource = readFileSync(join(import.meta.dirname, '../app/api/history/[id]/route.ts'), 'utf8');
   assert.ok(
     source.includes("const ACTIVE_HISTORY_CHAT_KEY = 'gippidy-active-history-chat';"),
     'page should define a dedicated localStorage key for the active saved chat',
@@ -387,11 +388,11 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
     'history restore should only run when a forked chat is not taking over startup',
   );
   assert.ok(
-    source.includes('const activeItem = items.find(item => item.id === activeHistoryChatId);'),
-    'page should look up the saved chat that was active before refresh',
+    source.includes('const restored = await fetchHistoryItem(activeHistoryChatId);'),
+    'page should restore the active saved chat by directly fetching that history row',
   );
   assert.ok(
-    source.includes('if (activeItem) applyLoadedChat(activeItem);'),
+    source.includes('if (restored.kind === \'ok\') applyLoadedChat(restored.item);'),
     'page should rehydrate the previously active saved chat after refresh',
   );
   assert.ok(
@@ -401,6 +402,18 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
   assert.ok(
     source.includes('rememberActiveHistoryChat(null);'),
     'clearing, deleting, or forking away from a saved chat should clear the persisted selection',
+  );
+  assert.ok(
+    source.includes("logClientEvent('history.restore_fetch_failed'"),
+    'page should log a specific restore failure instead of only a generic settings load failure',
+  );
+  assert.ok(
+    historyItemRouteSource.includes('SELECT id, iv, ciphertext, updated_at FROM chat_histories WHERE id = $1 AND user_email = $2 LIMIT 1'),
+    'history item route should support fetching one saved chat by id for refresh restore',
+  );
+  assert.ok(
+    historyItemRouteSource.includes("}, 'history.get');"),
+    'history item route should log successful direct history fetches',
   );
 });
 
