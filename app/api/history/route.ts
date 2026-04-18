@@ -25,6 +25,8 @@ export async function GET(req: Request) {
       user: session.user.email,
       durationMs: Date.now() - start,
       rows: rows.length,
+      topId: rows[0]?.id ?? null,
+      topUpdatedAt: rows[0]?.updated_at ?? null,
       newestAt: rows[0]?.updated_at ?? null,
       oldestAt: rows[rows.length - 1]?.updated_at ?? null,
     }, 'history.list');

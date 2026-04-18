@@ -417,6 +417,59 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
   );
 });
 
+test('history drawer still loads the latest 50 saved chats', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const historyRouteSource = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
+  assert.ok(
+    pageSource.includes("const res = await fetch('/api/history');"),
+    'history drawer should load saved chats from the history list endpoint',
+  );
+  assert.ok(
+    pageSource.includes('await loadHistory();'),
+    'opening the history drawer should refresh the saved chat list',
+  );
+  assert.ok(
+    historyRouteSource.includes('ORDER BY updated_at DESC LIMIT 50'),
+    'history list endpoint should return the latest 50 saved chats first',
+  );
+  assert.ok(
+    historyRouteSource.includes('topUpdatedAt: rows[0]?.updated_at ?? null'),
+    'history list logs should include the updated_at timestamp of the top visible row',
+  );
+  assert.ok(
+    historyRouteSource.includes("}, 'history.list');"),
+    'history list endpoint should continue logging the visible latest-history window',
+  );
+});
+
+test('history save logs meaningful failure details before and after the network request', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  assert.ok(
+    pageSource.includes('const bodyBytes = new TextEncoder().encode(body).length;'),
+    'history saves should measure request size before posting so oversized chats are diagnosable',
+  );
+  assert.ok(
+    pageSource.includes('bodyBytes > LIMITS.historyBodyBytes || ciphertextBytes > LIMITS.maxCiphertextBytes'),
+    'history saves should log when the encrypted payload is too large to persist',
+  );
+  assert.ok(
+    pageSource.includes("logClientEvent('history.save_too_large', 'warn', {"),
+    'history saves should emit a dedicated too-large log event with size details',
+  );
+  assert.ok(
+    pageSource.includes("const error = (await res.text()).slice(0, LIMITS.maxClientEventValueChars);"),
+    'history save failures should capture the server error text for debugging',
+  );
+  assert.ok(
+    pageSource.includes('bodyBytes,'),
+    'history save failure logs should include the request body size',
+  );
+  assert.ok(
+    pageSource.includes('ciphertextBytes,'),
+    'history save failure logs should include the ciphertext size',
+  );
+});
+
 // ── settings validation ────────────────────────────────────────────────────────
 
 test('validateSettingsRequest: validates and defaults girlMode', () => {
