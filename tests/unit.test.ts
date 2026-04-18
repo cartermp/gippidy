@@ -384,12 +384,24 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
     'page should read the active saved chat id during startup',
   );
   assert.ok(
-    source.includes('if (!restoredFork && activeHistoryChatId) {'),
+    source.includes("const pendingStartupHistoryRestoreRef = useRef<string | null>(null);"),
+    'page should track whether the startup history restore is still allowed to apply',
+  );
+  assert.ok(
+    source.includes('pendingStartupHistoryRestoreRef.current = restoredFork ? null : activeHistoryChatId;'),
+    'page should remember which saved chat is eligible for startup restore',
+  );
+  assert.ok(
+    source.includes('if (!restoredFork && restoreId) {'),
     'history restore should only run when a forked chat is not taking over startup',
   );
   assert.ok(
-    source.includes('const restored = await fetchHistoryItem(activeHistoryChatId);'),
+    source.includes('const restored = await fetchHistoryItem(restoreId);'),
     'page should restore the active saved chat by directly fetching that history row',
+  );
+  assert.ok(
+    source.includes('if (pendingStartupHistoryRestoreRef.current !== restoreId) return;'),
+    'page should skip applying a delayed restore after the user has already moved on',
   );
   assert.ok(
     source.includes('if (restored.kind === \'ok\') applyLoadedChat(restored.item);'),
@@ -402,6 +414,10 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
   assert.ok(
     source.includes('rememberActiveHistoryChat(null);'),
     'clearing, deleting, or forking away from a saved chat should clear the persisted selection',
+  );
+  assert.ok(
+    source.includes('cancelPendingStartupHistoryRestore(true);'),
+    'starting a new chat should cancel the pending startup restore and clear the stale saved-chat selection',
   );
   assert.ok(
     source.includes("logClientEvent('history.restore_fetch_failed'"),

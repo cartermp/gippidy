@@ -219,6 +219,7 @@ export default function Home() {
   const girlModeRef     = useRef(girlMode);
   const initialSettingsLoadedRef = useRef(false);
   const pendingSettingsRef = useRef<PendingSettings>({});
+  const pendingStartupHistoryRestoreRef = useRef<string | null>(null);
 
   useEffect(() => {
     systemPromptRef.current = systemPrompt;
@@ -313,6 +314,12 @@ export default function Home() {
     setSystemPrompt(item.systemPrompt ?? '');
     chatIdRef.current = item.id;
     rememberActiveHistoryChat(item.id);
+  };
+
+  const cancelPendingStartupHistoryRestore = (clearStoredSelection = false) => {
+    if (!pendingStartupHistoryRestoreRef.current) return;
+    pendingStartupHistoryRestoreRef.current = null;
+    if (clearStoredSelection) rememberActiveHistoryChat(null);
   };
 
   const rememberPendingSettings = (patch: PendingSettings) => {
@@ -466,6 +473,7 @@ export default function Home() {
         logClientEvent('fork.parse_failed', 'warn');
       }
     }
+    pendingStartupHistoryRestoreRef.current = restoredFork ? null : activeHistoryChatId;
 
     const ac = new AbortController();
     fetch('/api/settings', { signal: ac.signal })
@@ -496,8 +504,11 @@ export default function Home() {
           // New key (or migrated from localStorage) — save to server so all deployments use it
           persistSettings({ keyJwk: jwk }, true);
         }
-        if (!restoredFork && activeHistoryChatId) {
-          const restored = await fetchHistoryItem(activeHistoryChatId);
+        const restoreId = pendingStartupHistoryRestoreRef.current;
+        if (!restoredFork && restoreId) {
+          const restored = await fetchHistoryItem(restoreId);
+          if (pendingStartupHistoryRestoreRef.current !== restoreId) return;
+          pendingStartupHistoryRestoreRef.current = null;
           if (restored.kind === 'ok') applyLoadedChat(restored.item);
           else if (restored.kind === 'missing') rememberActiveHistoryChat(null);
         }
@@ -637,11 +648,13 @@ export default function Home() {
 
   const handleOpenHistory = async () => {
     if (showHistory) { setShowHistory(false); setHistorySearch(''); return; }
+    cancelPendingStartupHistoryRestore();
     setShowHistory(true);
     await loadHistory();
   };
 
   const handleLoadChat = (item: HistoryItem) => {
+    cancelPendingStartupHistoryRestore();
     applyLoadedChat(item);
     setShowHistory(false);
   };
@@ -663,6 +676,7 @@ export default function Home() {
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (e.target.value.trim()) cancelPendingStartupHistoryRestore(true);
     setInput(e.target.value);
     historyIndexRef.current = -1;
     e.target.style.height = 'auto';
@@ -677,10 +691,12 @@ export default function Home() {
 
     if (imageFiles.length === 0) return;
     e.preventDefault();
+    cancelPendingStartupHistoryRestore(true);
     readImageFiles(rejectLargeFiles(imageFiles, LIMITS.maxImageBytes, 'image'), img => setPendingImages(imgs => [...imgs, img]));
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    cancelPendingStartupHistoryRestore(true);
     const all   = Array.from(e.target.files ?? []);
     const imgs  = rejectLargeFiles(all.filter(f => f.type.startsWith('image/')), LIMITS.maxImageBytes, 'image');
     const pdfs  = rejectLargeFiles(all.filter(f => f.type === 'application/pdf'), LIMITS.maxPdfBytes, 'pdf');
@@ -693,6 +709,7 @@ export default function Home() {
 
   const handleDrop = (e: React.DragEvent<HTMLFormElement>) => {
     e.preventDefault();
+    cancelPendingStartupHistoryRestore(true);
     const all   = Array.from(e.dataTransfer.files);
     const imgs  = rejectLargeFiles(all.filter(f => f.type.startsWith('image/')), LIMITS.maxImageBytes, 'image');
     const pdfs  = rejectLargeFiles(all.filter(f => f.type === 'application/pdf'), LIMITS.maxPdfBytes, 'pdf');
@@ -885,6 +902,7 @@ export default function Home() {
 
   const submitTurn = async (nextInput?: string) => {
     if ((!((nextInput ?? input).trim()) && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0) || streaming) return;
+    cancelPendingStartupHistoryRestore(true);
     textareaRef.current?.focus();
 
     const trimmed = (nextInput ?? input).trim();
