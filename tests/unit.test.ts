@@ -477,6 +477,16 @@ test('history save logs meaningful failure details before and after the network 
     'history saves should skip only after the readiness helper decides saving is not possible',
   );
   assert.ok(
+    pageSource.includes('const currentHistoryId = chatIdRef.current;'),
+    'history saves should snapshot the current saved-chat id before building the request body',
+  );
+  assert.ok(
+    pageSource.includes(`currentHistoryId
+              ? { id: currentHistoryId, iv, ciphertext }
+              : { iv, ciphertext }`),
+    'history saves should omit id entirely for new chats so the API creates a new history row',
+  );
+  assert.ok(
     pageSource.includes('const bodyBytes = new TextEncoder().encode(body).length;'),
     'history saves should measure request size before posting so oversized chats are diagnosable',
   );
@@ -499,6 +509,61 @@ test('history save logs meaningful failure details before and after the network 
   assert.ok(
     pageSource.includes('ciphertextBytes,'),
     'history save failure logs should include the ciphertext size',
+  );
+});
+
+test('history save route emits one wide canonical history.save log per POST attempt', () => {
+  const source = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
+  assert.ok(
+    source.includes('const ctx: Record<string, string | number | boolean | null> = {'),
+    'history save route should collect request/save metadata in one canonical logging context',
+  );
+  assert.ok(
+    source.includes('const requestBytes = readContentLength(req);') &&
+      source.includes('requestBytes,'),
+    'history save route should log request size metadata',
+  );
+  assert.ok(
+    source.includes('hasIdField: false,'),
+    'history save route should log whether the request included an id field at all',
+  );
+  assert.ok(
+    source.includes('ctx.idFieldType = getFieldType(body.id);'),
+    'history save route should log the type of the incoming id field for debugging invalid payloads',
+  );
+  assert.ok(
+    source.includes('ctx.requestedId = typeof body.id === \'string\' ? body.id : null;'),
+    'history save route should capture the requested id before validation',
+  );
+  assert.ok(
+    source.includes('ctx.savedId = result.rows[0].id;'),
+    'history save route should log the final saved history id',
+  );
+  assert.ok(
+    source.includes('ctx.resolvedOp = \'insert\';'),
+    'history save route should log whether the request resolved as an insert',
+  );
+  assert.ok(
+    source.includes('ctx.resolvedOp = \'update\';'),
+    'history save route should log whether the request resolved as an update',
+  );
+  assert.ok(
+    source.includes("if (status >= 500) logger.error(fields, 'history.save');"),
+    'history save route should emit error-level canonical logs for 5xx outcomes',
+  );
+  assert.ok(
+    source.includes("else if (status >= 400) logger.warn(fields, 'history.save');"),
+    'history save route should emit warn-level canonical logs for 4xx outcomes',
+  );
+  assert.ok(
+    source.includes("else logger.info(fields, 'history.save');"),
+    'history save route should emit info-level canonical logs for successful saves',
+  );
+  assert.ok(
+    !source.includes("'history.save.invalid'") &&
+      !source.includes("'history.save.failed'") &&
+      !source.includes("'history.save.too_large'"),
+    'history save POST logging should use the canonical history.save event name instead of fragmented sub-events',
   );
 });
 

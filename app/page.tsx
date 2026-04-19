@@ -777,11 +777,16 @@ export default function Home() {
           const toSave = stripMessageHtml(finalMsgs);
           const { iv, ciphertext } = await encrypt(key, { messages: toSave, model: requestModel, systemPrompt: requestSystemPrompt, title });
           const ciphertextBytes = Math.round((ciphertext.length ?? 0) * 0.75);
-          const body = JSON.stringify({ id: chatIdRef.current, iv, ciphertext });
+          const currentHistoryId = chatIdRef.current;
+          const body = JSON.stringify(
+            currentHistoryId
+              ? { id: currentHistoryId, iv, ciphertext }
+              : { iv, ciphertext },
+          );
           const bodyBytes = new TextEncoder().encode(body).length;
           if (bodyBytes > LIMITS.historyBodyBytes || ciphertextBytes > LIMITS.maxCiphertextBytes) {
             logClientEvent('history.save_too_large', 'warn', {
-              id: chatIdRef.current,
+              id: currentHistoryId,
               msgs: toSave.length,
               bodyBytes,
               maxBodyBytes: LIMITS.historyBodyBytes,
@@ -795,17 +800,17 @@ export default function Home() {
             headers: { 'Content-Type': 'application/json' },
             body,
           });
-          if (!res.ok) {
-            const error = (await res.text()).slice(0, LIMITS.maxClientEventValueChars);
-            logClientEvent('history.save_failed', 'warn', {
-              status: res.status,
-              requestId: res.headers.get('x-request-id'),
-              id: chatIdRef.current,
-              msgs: toSave.length,
-              bodyBytes,
-              ciphertextBytes,
-              error,
-            });
+            if (!res.ok) {
+              const error = (await res.text()).slice(0, LIMITS.maxClientEventValueChars);
+              logClientEvent('history.save_failed', 'warn', {
+                status: res.status,
+                requestId: res.headers.get('x-request-id'),
+                id: currentHistoryId,
+                msgs: toSave.length,
+                bodyBytes,
+                ciphertextBytes,
+                error,
+              });
             return;
           }
           const { id } = await res.json();
