@@ -247,6 +247,7 @@ export default function Home() {
   const systemPromptRef = useRef(systemPrompt);
   const saveHistoryRef  = useRef(saveHistory);
   const girlModeRef     = useRef(girlMode);
+  const chatStateVersionRef = useRef(0);
   const initialSettingsLoadedRef = useRef(false);
   const pendingSettingsRef = useRef<PendingSettings>({});
   const pendingStartupHistoryRestoreRef = useRef<string | null>(null);
@@ -337,6 +338,7 @@ export default function Home() {
   };
 
   const applyLoadedChat = (item: HistoryItem) => {
+    chatStateVersionRef.current += 1;
     setMessages(withRenderedMessages(item.messages));
     setModel(item.model);
     localStorage.setItem(MODEL_KEY, item.model);
@@ -504,6 +506,7 @@ export default function Home() {
     if (fork) {
       try {
         const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
+        chatStateVersionRef.current += 1;
         setMessages(withRenderedMessages(m));
         setModel(mo);
         localStorage.setItem(MODEL_KEY, mo);
@@ -731,8 +734,24 @@ export default function Home() {
   };
 
   const startFreshChat = () => {
+    chatStateVersionRef.current += 1;
+    abortControllerRef.current?.abort();
     cancelPendingStartupHistoryRestore(true);
     setMessages([]);
+    setInput('');
+    setPendingImages([]);
+    setPendingFiles([]);
+    setPendingPdfs([]);
+    setShowHistory(false);
+    setHistorySearch('');
+    setHistoryOpeningId(null);
+    setStreaming(false);
+    setStreamingContent('');
+    setStreamingHtml('');
+    setConnected(false);
+    setSavedFlash(false);
+    webSearchPhaseRef.current = 'off';
+    setWebSearchPhase('off');
     chatIdRef.current = null;
     rememberActiveHistoryChat(null);
   };
@@ -783,6 +802,7 @@ export default function Home() {
 
   const doStream = async (msgs: Message[], useWebSearch = false) => {
     const SMOOTH_RATE = 3;
+    const chatStateVersion = chatStateVersionRef.current;
     const requestModel = model;
     const requestSystemPrompt = systemPrompt;
     const requestMessages = toConversationMessages(msgs);
@@ -806,6 +826,7 @@ export default function Home() {
     abortControllerRef.current = controller;
 
     const finalize = (text: string) => {
+      if (chatStateVersionRef.current !== chatStateVersion) return;
       const finalMsgs: Message[] = [...msgs, withRenderedHtml({ role: 'assistant', content: text })];
       setMessages(finalMsgs);
       if (streamingHtmlTimerRef.current) {
@@ -871,6 +892,7 @@ export default function Home() {
             return;
           }
           const { id } = await res.json();
+          if (chatStateVersionRef.current !== chatStateVersion || chatIdRef.current !== currentHistoryId) return;
           chatIdRef.current = id;
           rememberActiveHistoryChat(id);
           setSavedFlash(true);
@@ -882,6 +904,10 @@ export default function Home() {
     };
 
     const doTick = () => {
+      if (chatStateVersionRef.current !== chatStateVersion) {
+        cancelTicker();
+        return;
+      }
       const received = receivedRef.current;
       const isDone   = streamDoneRef.current;
       const pos      = displayPosRef.current;
@@ -913,6 +939,10 @@ export default function Home() {
         body: JSON.stringify({ messages: requestMessages, model: requestModel, systemPrompt: requestSystemPrompt, webSearch: useWebSearch }),
         signal: controller.signal,
       });
+      if (chatStateVersionRef.current !== chatStateVersion) {
+        cancelTicker();
+        return;
+      }
       const requestId = res.headers.get('x-request-id');
 
       if (!res.ok) {
@@ -935,6 +965,10 @@ export default function Home() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (chatStateVersionRef.current !== chatStateVersion) {
+          cancelTicker();
+          return;
+        }
         if (!didConnect) { didConnect = true; setConnected(true); }
         const raw = decoder.decode(value, { stream: true });
         if (raw.includes('\0') && webSearchPhaseRef.current === 'searching') {
@@ -948,6 +982,7 @@ export default function Home() {
 
     } catch (err) {
       cancelTicker();
+      if (chatStateVersionRef.current !== chatStateVersion) return;
       const partial = receivedRef.current;
       setStreamingContent('');
       setStreaming(false);
@@ -1079,7 +1114,7 @@ export default function Home() {
   return (
     <div className="app">
       <header>
-        <a className="logo" href="/" onClick={startFreshChat}>GIPPIDY</a>
+        <a className="logo" href="/" onClick={e => { e.preventDefault(); startFreshChat(); }}>GIPPIDY</a>
         <span className="model-label">
           {MODELS.find(m => m.id === model)?.label}
           {savedFlash && <span className="saved-flash"> ✓ saved</span>}

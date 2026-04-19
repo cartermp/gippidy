@@ -426,9 +426,11 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
   );
   assert.ok(
     source.includes('const startFreshChat = () => {') &&
-      source.includes('<a className="logo" href="/" onClick={startFreshChat}>GIPPIDY</a>') &&
+      source.includes('chatStateVersionRef.current += 1;') &&
+      source.includes('abortControllerRef.current?.abort();') &&
+      source.includes('<a className="logo" href="/" onClick={e => { e.preventDefault(); startFreshChat(); }}>GIPPIDY</a>') &&
       source.includes('<button onClick={startFreshChat}>[CLEAR]</button>'),
-    'the logo and [CLEAR] should use the same fresh-chat path so explicit new-chat actions clear the persisted active history selection',
+    'the logo and [CLEAR] should use the same fresh-chat path so explicit new-chat actions clear persisted selection and invalidate stale in-flight work',
   );
   assert.ok(
     source.includes("logClientEvent('history.restore_fetch_failed'"),
@@ -511,6 +513,11 @@ test('history save logs meaningful failure details before and after the network 
     'history saves should snapshot the current saved-chat id before building the request body',
   );
   assert.ok(
+    pageSource.includes('const chatStateVersion = chatStateVersionRef.current;') &&
+      pageSource.includes('if (chatStateVersionRef.current !== chatStateVersion || chatIdRef.current !== currentHistoryId) return;'),
+    'history saves should ignore stale save completions after the user has started a different chat',
+  );
+  assert.ok(
     pageSource.includes(`currentHistoryId
               ? { id: currentHistoryId, iv, ciphertext, titleIv, titleCiphertext }
               : { iv, ciphertext, titleIv, titleCiphertext }`),
@@ -547,6 +554,11 @@ test('history save logs meaningful failure details before and after the network 
   assert.ok(
     pageSource.includes('titleCiphertextBytes,'),
     'history save logs should include the split title ciphertext size for debugging preview writes',
+  );
+  assert.ok(
+    pageSource.includes('if (chatStateVersionRef.current !== chatStateVersion) return;') &&
+      pageSource.includes('if (chatStateVersionRef.current !== chatStateVersion) {\n        cancelTicker();\n        return;\n      }'),
+    'stream finalization should stop when the user has already switched to a different chat',
   );
 });
 
