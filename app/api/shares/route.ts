@@ -1,24 +1,40 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
-import logger from '@/lib/log';
+import { logRouteOutcome, type LogFields } from '@/lib/log';
 import { getRequestId, jsonResponse, PRIVATE_NO_STORE, readContentLength } from '@/lib/request';
 import { LIMITS, validateShareRequest } from '@/lib/validation';
 
 export async function POST(req: NextRequest) {
   const requestId = getRequestId(req);
   const start = Date.now();
+  const requestBytes = readContentLength(req);
+  const ctx: LogFields = {
+    requestId,
+    user: null,
+    status: null,
+    requestBytes,
+    bodyBytes: null,
+    model: null,
+    msgs: null,
+    hasSystemPrompt: null,
+    shareId: null,
+    insertAttempts: 0,
+    error: null,
+  };
 
   try {
     const session = await auth();
     if (!session?.user?.email) {
-      logger.warn({ requestId, durationMs: Date.now() - start }, 'share.create.unauthenticated');
+      ctx.status = 401;
+      ctx.error = 'Unauthorized';
       return jsonResponse({ error: 'Unauthorized' }, { status: 401 }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
+    ctx.user = session.user.email;
 
-    const contentLength = readContentLength(req);
-    if (contentLength !== null && contentLength > LIMITS.shareBodyBytes) {
-      logger.warn({ requestId, user: session.user.email, contentLength, durationMs: Date.now() - start }, 'share.create.too_large');
+    if (requestBytes !== null && requestBytes > LIMITS.shareBodyBytes) {
+      ctx.status = 413;
+      ctx.error = 'Request too large';
       return jsonResponse(
         { error: 'Chat too large to share. Try removing image attachments first.' },
         { status: 413 },
@@ -28,8 +44,15 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const bodyBytes = JSON.stringify(body).length;
+    ctx.bodyBytes = bodyBytes;
+    if (body && typeof body === 'object' && !Array.isArray(body)) {
+      ctx.model = typeof body.model === 'string' ? body.model : null;
+      ctx.msgs = Array.isArray(body.messages) ? body.messages.length : null;
+      ctx.hasSystemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt.length > 0 : null;
+    }
     if (bodyBytes > LIMITS.shareBodyBytes) {
-      logger.warn({ requestId, user: session.user.email, bodyBytes, durationMs: Date.now() - start }, 'share.create.too_large');
+      ctx.status = 413;
+      ctx.error = 'Request too large';
       return jsonResponse(
         { error: 'Chat too large to share. Try removing image attachments first.' },
         { status: 413 },
@@ -39,12 +62,17 @@ export async function POST(req: NextRequest) {
 
     const parsed = validateShareRequest(body);
     if (!parsed.ok) {
-      logger.warn({ requestId, user: session.user.email, durationMs: Date.now() - start, error: parsed.error }, 'share.create.invalid');
+      ctx.status = parsed.status;
+      ctx.error = parsed.error;
       return jsonResponse({ error: parsed.error }, { status: parsed.status }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
+    ctx.model = parsed.value.model;
+    ctx.msgs = parsed.value.messages.length;
+    ctx.hasSystemPrompt = Boolean(parsed.value.systemPrompt);
 
     let id = '';
     for (let attempt = 0; attempt < 3; attempt++) {
+      ctx.insertAttempts = attempt + 1;
       id = crypto.randomUUID().replace(/-/g, '');
       const result = await query(
         `INSERT INTO shared_chats (id, created_by, model, system_prompt, messages)
@@ -57,22 +85,19 @@ export async function POST(req: NextRequest) {
     }
 
     if (!id) {
-      logger.error({ requestId, user: session.user.email, durationMs: Date.now() - start }, 'share.create.collision');
+      ctx.status = 503;
+      ctx.error = 'Could not create share';
       return jsonResponse({ error: 'Could not create share' }, { status: 503 }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
 
-    logger.info({
-      requestId,
-      user: session.user.email,
-      id,
-      model: parsed.value.model,
-      msgs: parsed.value.messages.length,
-      bodyBytes,
-      durationMs: Date.now() - start,
-    }, 'share.create');
+    ctx.status = 200;
+    ctx.shareId = id;
     return jsonResponse({ id }, {}, { requestId, cacheControl: PRIVATE_NO_STORE });
   } catch (error) {
-    logger.error({ requestId, durationMs: Date.now() - start, error: String(error).slice(0, 200) }, 'share.create.failed');
+    ctx.status = 500;
+    ctx.error = String(error).slice(0, 200);
     return jsonResponse({ error: 'Internal Server Error' }, { status: 500 }, { requestId, cacheControl: PRIVATE_NO_STORE });
+  } finally {
+    logRouteOutcome('share.create', start, ctx);
   }
 }

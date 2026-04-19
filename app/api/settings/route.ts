@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
-import logger from '@/lib/log';
+import { logRouteOutcome, type LogFields } from '@/lib/log';
 import { getRequestId, jsonResponse, PRIVATE_NO_STORE, readContentLength } from '@/lib/request';
 import { LIMITS, validateSettingsRequest } from '@/lib/validation';
 
@@ -22,6 +22,10 @@ function hasOwn(input: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(input, key);
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function isMissingGirlModeColumn(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { code?: string; message?: string };
@@ -29,7 +33,7 @@ function isMissingGirlModeColumn(error: unknown): boolean {
   return candidate.code === '42703' && message.includes('girl_mode');
 }
 
-async function getSettingsRow(email: string, requestId: string): Promise<{ row?: SettingsRow; legacySchema: boolean }> {
+async function getSettingsRow(email: string): Promise<{ row?: SettingsRow; legacySchema: boolean }> {
   try {
     const result = await query(
       'SELECT system_prompt, save_history, key_jwk, girl_mode FROM user_settings WHERE email = $1',
@@ -38,7 +42,6 @@ async function getSettingsRow(email: string, requestId: string): Promise<{ row?:
     return { row: result.rows[0] as SettingsRow | undefined, legacySchema: false };
   } catch (error) {
     if (!isMissingGirlModeColumn(error)) throw error;
-    logger.warn({ requestId, user: email }, 'settings.get.legacy_schema');
     const result = await query(
       'SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1',
       [email],
@@ -47,7 +50,7 @@ async function getSettingsRow(email: string, requestId: string): Promise<{ row?:
   }
 }
 
-async function upsertSettingsRow(email: string, patch: SettingsPatch, requestId: string): Promise<{ legacySchema: boolean }> {
+async function upsertSettingsRow(email: string, patch: SettingsPatch): Promise<{ legacySchema: boolean }> {
   try {
     await query(
       `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk, girl_mode)
@@ -62,7 +65,6 @@ async function upsertSettingsRow(email: string, patch: SettingsPatch, requestId:
     return { legacySchema: false };
   } catch (error) {
     if (!isMissingGirlModeColumn(error)) throw error;
-    logger.warn({ requestId, user: email }, 'settings.put.legacy_schema');
     await query(
       `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk)
        VALUES ($1, COALESCE($2, ''), COALESCE($3, FALSE), $4)
@@ -79,25 +81,34 @@ async function upsertSettingsRow(email: string, patch: SettingsPatch, requestId:
 export async function GET(req: Request) {
   const requestId = getRequestId(req);
   const start = Date.now();
+  const ctx: LogFields = {
+    requestId,
+    user: null,
+    status: null,
+    hasKey: null,
+    saveHistory: null,
+    girlMode: null,
+    legacySchema: null,
+    newUser: null,
+    error: null,
+  };
 
   try {
     const session = await auth();
     if (!session?.user?.email) {
-      logger.warn({ requestId, route: 'settings.get', durationMs: Date.now() - start }, 'unauthenticated');
+      ctx.status = 401;
+      ctx.error = 'Unauthorized';
       return jsonResponse({ error: 'Unauthorized' }, { status: 401 }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
+    ctx.user = session.user.email;
 
-    const { row, legacySchema } = await getSettingsRow(session.user.email, requestId);
-    logger.info({
-      requestId,
-      user: session.user.email,
-      durationMs: Date.now() - start,
-      hasKey: !!row?.key_jwk,
-      saveHistory: row?.save_history ?? false,
-      girlMode: legacySchema ? null : (row?.girl_mode ?? false),
-      legacySchema,
-      newUser: !row,
-    }, 'settings.get');
+    const { row, legacySchema } = await getSettingsRow(session.user.email);
+    ctx.status = 200;
+    ctx.hasKey = !!row?.key_jwk;
+    ctx.saveHistory = row?.save_history ?? false;
+    ctx.girlMode = legacySchema ? null : (row?.girl_mode ?? false);
+    ctx.legacySchema = legacySchema;
+    ctx.newUser = !row;
     return jsonResponse({
       systemPrompt: row?.system_prompt ?? '',
       saveHistory: row?.save_history ?? false,
@@ -105,32 +116,66 @@ export async function GET(req: Request) {
       keyJwk: row?.key_jwk ?? null,
     }, {}, { requestId, cacheControl: PRIVATE_NO_STORE });
   } catch (error) {
-    logger.error({ requestId, durationMs: Date.now() - start, error: String(error).slice(0, 200) }, 'settings.get.failed');
+    ctx.status = 500;
+    ctx.error = String(error).slice(0, 200);
     return jsonResponse({ error: 'Internal Server Error' }, { status: 500 }, { requestId, cacheControl: PRIVATE_NO_STORE });
+  } finally {
+    logRouteOutcome('settings.get', start, ctx);
   }
 }
 
 export async function PUT(req: Request) {
   const requestId = getRequestId(req);
   const start = Date.now();
+  const requestBytes = readContentLength(req);
+  const ctx: LogFields = {
+    requestId,
+    user: null,
+    status: null,
+    requestBytes,
+    bodyBytes: null,
+    hasSystemPromptField: null,
+    hasSaveHistoryField: null,
+    hasGirlModeField: null,
+    hasKeyJwkField: null,
+    systemPromptChars: null,
+    keyJwkChars: null,
+    saveHistory: null,
+    girlMode: null,
+    hasKey: null,
+    legacySchema: null,
+    error: null,
+  };
 
   try {
     const session = await auth();
     if (!session?.user?.email) {
-      logger.warn({ requestId, route: 'settings.put', durationMs: Date.now() - start }, 'unauthenticated');
+      ctx.status = 401;
+      ctx.error = 'Unauthorized';
       return jsonResponse({ error: 'Unauthorized' }, { status: 401 }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
+    ctx.user = session.user.email;
 
-    const contentLength = readContentLength(req);
-    if (contentLength !== null && contentLength > LIMITS.settingsBodyBytes) {
-      logger.warn({ requestId, user: session.user.email, durationMs: Date.now() - start, contentLength }, 'settings.put.too_large');
+    if (requestBytes !== null && requestBytes > LIMITS.settingsBodyBytes) {
+      ctx.status = 413;
+      ctx.error = 'Request too large';
       return jsonResponse({ error: 'Request too large' }, { status: 413 }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
 
     const body = await req.json();
+    if (isPlainObject(body)) {
+      ctx.bodyBytes = JSON.stringify(body).length;
+      ctx.hasSystemPromptField = hasOwn(body, 'systemPrompt');
+      ctx.hasSaveHistoryField = hasOwn(body, 'saveHistory');
+      ctx.hasGirlModeField = hasOwn(body, 'girlMode');
+      ctx.hasKeyJwkField = hasOwn(body, 'keyJwk');
+      ctx.systemPromptChars = typeof body.systemPrompt === 'string' ? body.systemPrompt.length : null;
+      ctx.keyJwkChars = typeof body.keyJwk === 'string' ? body.keyJwk.length : null;
+    }
     const parsed = validateSettingsRequest(body);
     if (!parsed.ok) {
-      logger.warn({ requestId, user: session.user.email, durationMs: Date.now() - start, error: parsed.error }, 'settings.put.invalid');
+      ctx.status = parsed.status;
+      ctx.error = parsed.error;
       return jsonResponse({ error: parsed.error }, { status: parsed.status }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
 
@@ -142,22 +187,25 @@ export async function PUT(req: Request) {
       keyJwk: hasOwn(input, 'keyJwk') ? parsed.value.keyJwk : null,
     };
 
-    const { legacySchema } = await upsertSettingsRow(session.user.email, patch, requestId);
-    logger.info({
-      requestId,
-      user: session.user.email,
-      durationMs: Date.now() - start,
-      saveHistory: patch.saveHistory,
-      girlMode: legacySchema ? null : patch.girlMode,
-      hasKey: !!patch.keyJwk,
-      legacySchema,
-    }, 'settings.put');
+    ctx.systemPromptChars = patch.systemPrompt === null ? ctx.systemPromptChars : patch.systemPrompt.length;
+    ctx.keyJwkChars = patch.keyJwk === null ? ctx.keyJwkChars : patch.keyJwk.length;
+    ctx.saveHistory = patch.saveHistory;
+    ctx.girlMode = patch.girlMode;
+    ctx.hasKey = patch.keyJwk === null ? null : patch.keyJwk.length > 0;
+
+    const { legacySchema } = await upsertSettingsRow(session.user.email, patch);
+    ctx.status = 204;
+    ctx.girlMode = legacySchema ? null : patch.girlMode;
+    ctx.legacySchema = legacySchema;
     return new Response(null, {
       status: 204,
       headers: { 'X-Request-Id': requestId, 'Cache-Control': PRIVATE_NO_STORE },
     });
   } catch (error) {
-    logger.error({ requestId, durationMs: Date.now() - start, error: String(error).slice(0, 200) }, 'settings.put.failed');
+    ctx.status = 500;
+    ctx.error = String(error).slice(0, 200);
     return jsonResponse({ error: 'Internal Server Error' }, { status: 500 }, { requestId, cacheControl: PRIVATE_NO_STORE });
+  } finally {
+    logRouteOutcome('settings.put', start, ctx);
   }
 }

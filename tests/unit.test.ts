@@ -428,8 +428,8 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
     'history item route should support fetching one saved chat by id for refresh restore',
   );
   assert.ok(
-    historyItemRouteSource.includes("}, 'history.get');"),
-    'history item route should log successful direct history fetches',
+    historyItemRouteSource.includes("logRouteOutcome('history.get', start, ctx);"),
+    'history item route should emit the canonical history.get log for direct history fetches',
   );
 });
 
@@ -449,12 +449,12 @@ test('history drawer still loads the latest 50 saved chats', () => {
     'history list endpoint should return the latest 50 saved chats first',
   );
   assert.ok(
-    historyRouteSource.includes('topUpdatedAt: rows[0]?.updated_at ?? null'),
+    historyRouteSource.includes('ctx.topUpdatedAt = rows[0]?.updated_at ?? null;'),
     'history list logs should include the updated_at timestamp of the top visible row',
   );
   assert.ok(
-    historyRouteSource.includes("}, 'history.list');"),
-    'history list endpoint should continue logging the visible latest-history window',
+    historyRouteSource.includes("logRouteOutcome('history.list', start, ctx);"),
+    'history list endpoint should continue emitting the canonical history.list log for the visible latest-history window',
   );
 });
 
@@ -514,6 +514,7 @@ test('history save logs meaningful failure details before and after the network 
 
 test('history save route emits one wide canonical history.save log per POST attempt', () => {
   const source = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
+  const logSource = readFileSync(join(import.meta.dirname, '../lib/log.ts'), 'utf8');
   assert.ok(
     source.includes('const ctx: Record<string, string | number | boolean | null> = {'),
     'history save route should collect request/save metadata in one canonical logging context',
@@ -548,22 +549,107 @@ test('history save route emits one wide canonical history.save log per POST atte
     'history save route should log whether the request resolved as an update',
   );
   assert.ok(
-    source.includes("if (status >= 500) logger.error(fields, 'history.save');"),
-    'history save route should emit error-level canonical logs for 5xx outcomes',
+    logSource.includes('export function logByStatus(') &&
+      logSource.includes('if (status >= 500) logger.error(fields, event);'),
+    'route logging should centralize 5xx/error log-level routing in the shared logger helper',
   );
   assert.ok(
-    source.includes("else if (status >= 400) logger.warn(fields, 'history.save');"),
-    'history save route should emit warn-level canonical logs for 4xx outcomes',
+    logSource.includes("else if (status >= 400) logger.warn(fields, event);"),
+    'route logging should centralize 4xx/warn log-level routing in the shared logger helper',
   );
   assert.ok(
-    source.includes("else logger.info(fields, 'history.save');"),
-    'history save route should emit info-level canonical logs for successful saves',
+    logSource.includes('export function logRouteOutcome(') &&
+      source.includes("logRouteOutcome('history.save', start, ctx);"),
+    'history save route should emit its canonical history.save log through the shared route helper',
   );
   assert.ok(
     !source.includes("'history.save.invalid'") &&
       !source.includes("'history.save.failed'") &&
       !source.includes("'history.save.too_large'"),
     'history save POST logging should use the canonical history.save event name instead of fragmented sub-events',
+  );
+});
+
+test('route verbs use canonical thick logging across settings, history, shares, and health', () => {
+  const historySource = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
+  const historyItemSource = readFileSync(join(import.meta.dirname, '../app/api/history/[id]/route.ts'), 'utf8');
+  const settingsSource = readFileSync(join(import.meta.dirname, '../app/api/settings/route.ts'), 'utf8');
+  const sharesSource = readFileSync(join(import.meta.dirname, '../app/api/shares/route.ts'), 'utf8');
+  const shareGetSource = readFileSync(join(import.meta.dirname, '../app/api/shares/[id]/route.ts'), 'utf8');
+  const clientEventsSource = readFileSync(join(import.meta.dirname, '../app/api/client-events/route.ts'), 'utf8');
+  const healthSource = readFileSync(join(import.meta.dirname, '../app/api/health/route.ts'), 'utf8');
+
+  assert.ok(
+    historySource.includes("logRouteOutcome('history.list', start, ctx);"),
+    'history GET should emit one canonical history.list log line per request',
+  );
+  assert.ok(
+    !historySource.includes("'history.list.failed'") &&
+      !historySource.includes("'history.list.unauthenticated'"),
+    'history list logging should use the canonical history.list event instead of fragmented sub-events',
+  );
+  assert.ok(
+    historyItemSource.includes("logRouteOutcome('history.get', start, ctx);") &&
+      historyItemSource.includes("logRouteOutcome('history.delete', start, ctx);"),
+    'history item GET/DELETE should emit canonical history.get and history.delete logs',
+  );
+  assert.ok(
+    !historyItemSource.includes("'history.get.failed'") &&
+      !historyItemSource.includes("'history.get.invalid'") &&
+      !historyItemSource.includes("'history.get.missing'") &&
+      !historyItemSource.includes("'history.get.unauthenticated'") &&
+      !historyItemSource.includes("'history.delete.failed'") &&
+      !historyItemSource.includes("'history.delete.invalid'") &&
+      !historyItemSource.includes("'history.delete.unauthenticated'"),
+    'history item routes should collapse invalid, missing, auth, and failure outcomes into the canonical verb logs',
+  );
+  assert.ok(
+    settingsSource.includes("logRouteOutcome('settings.get', start, ctx);") &&
+      settingsSource.includes("logRouteOutcome('settings.put', start, ctx);"),
+    'settings GET/PUT should emit canonical settings.get and settings.put logs',
+  );
+  assert.ok(
+    !settingsSource.includes("'settings.get.failed'") &&
+      !settingsSource.includes("'settings.put.failed'") &&
+      !settingsSource.includes("'settings.put.invalid'") &&
+      !settingsSource.includes("'settings.put.too_large'") &&
+      !settingsSource.includes("'settings.get.legacy_schema'") &&
+      !settingsSource.includes("'settings.put.legacy_schema'"),
+    'settings route logging should keep schema fallback and validation details inside the canonical verb logs',
+  );
+  assert.ok(
+    sharesSource.includes("logRouteOutcome('share.create', start, ctx);"),
+    'share creation should emit one canonical share.create log line per request',
+  );
+  assert.ok(
+    !sharesSource.includes("'share.create.failed'") &&
+      !sharesSource.includes("'share.create.invalid'") &&
+      !sharesSource.includes("'share.create.too_large'") &&
+      !sharesSource.includes("'share.create.unauthenticated'") &&
+      !sharesSource.includes("'share.create.collision'"),
+    'share creation logging should fold auth, validation, size, and collision outcomes into the canonical share.create event',
+  );
+  assert.ok(
+    shareGetSource.includes("logRouteOutcome('share.get', start, ctx);"),
+    'shared chat fetches should emit one canonical share.get log line per request',
+  );
+  assert.ok(
+    !shareGetSource.includes("'share.get.failed'") &&
+      !shareGetSource.includes("'share.get.invalid'"),
+    'share fetch logging should keep invalid and failed outcomes on the canonical share.get event',
+  );
+  assert.ok(
+    clientEventsSource.includes("logRouteOutcome('client.event', start, { ...ctx, ...detailFields });"),
+    'client event ingestion should emit one canonical client.event log line per POST',
+  );
+  assert.ok(
+    !clientEventsSource.includes("'client.event.failed'") &&
+      !clientEventsSource.includes("'client.event.invalid'"),
+    'client event ingestion should keep validation and failure outcomes on the canonical client.event event',
+  );
+  assert.ok(
+    healthSource.includes("logRouteOutcome('health.check', start, ctx);"),
+    'health checks should emit one canonical health.check log line per request',
   );
 });
 

@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
-import logger from '@/lib/log';
+import { logRouteOutcome, type LogFields } from '@/lib/log';
 import { getRequestId, jsonResponse, PRIVATE_NO_STORE, readContentLength } from '@/lib/request';
 import { LIMITS, validateHistorySaveRequest } from '@/lib/validation';
 
@@ -22,33 +22,45 @@ function getFieldType(value: unknown): string | null {
 export async function GET(req: Request) {
   const requestId = getRequestId(req);
   const start = Date.now();
+  const ctx: LogFields = {
+    requestId,
+    user: null,
+    status: null,
+    rows: null,
+    topId: null,
+    topUpdatedAt: null,
+    newestAt: null,
+    oldestAt: null,
+    error: null,
+  };
 
   try {
     const session = await auth();
     if (!session?.user?.email) {
-      logger.warn({ requestId, durationMs: Date.now() - start }, 'history.list.unauthenticated');
+      ctx.status = 401;
+      ctx.error = 'Unauthorized';
       return jsonResponse({ error: 'Unauthorized' }, { status: 401 }, { requestId, cacheControl: PRIVATE_NO_STORE });
     }
+    ctx.user = session.user.email;
 
     const result = await query(
       'SELECT id, iv, ciphertext, updated_at FROM chat_histories WHERE user_email = $1 ORDER BY updated_at DESC LIMIT 50',
       [session.user.email],
     );
     const rows = result.rows;
-    logger.info({
-      requestId,
-      user: session.user.email,
-      durationMs: Date.now() - start,
-      rows: rows.length,
-      topId: rows[0]?.id ?? null,
-      topUpdatedAt: rows[0]?.updated_at ?? null,
-      newestAt: rows[0]?.updated_at ?? null,
-      oldestAt: rows[rows.length - 1]?.updated_at ?? null,
-    }, 'history.list');
+    ctx.status = 200;
+    ctx.rows = rows.length;
+    ctx.topId = rows[0]?.id ?? null;
+    ctx.topUpdatedAt = rows[0]?.updated_at ?? null;
+    ctx.newestAt = rows[0]?.updated_at ?? null;
+    ctx.oldestAt = rows[rows.length - 1]?.updated_at ?? null;
     return jsonResponse(rows, {}, { requestId, cacheControl: PRIVATE_NO_STORE });
   } catch (error) {
-    logger.error({ requestId, durationMs: Date.now() - start, error: String(error).slice(0, 200) }, 'history.list.failed');
+    ctx.status = 500;
+    ctx.error = String(error).slice(0, 200);
     return jsonResponse({ error: 'Internal Server Error' }, { status: 500 }, { requestId, cacheControl: PRIVATE_NO_STORE });
+  } finally {
+    logRouteOutcome('history.list', start, ctx);
   }
 }
 
@@ -152,10 +164,6 @@ export async function POST(req: Request) {
     ctx.error = String(error).slice(0, 200);
     return jsonResponse({ error: 'Internal Server Error' }, { status: 500 }, { requestId, cacheControl: PRIVATE_NO_STORE });
   } finally {
-    const fields = { ...ctx, durationMs: Date.now() - start };
-    const status = typeof ctx.status === 'number' ? ctx.status : 500;
-    if (status >= 500) logger.error(fields, 'history.save');
-    else if (status >= 400) logger.warn(fields, 'history.save');
-    else logger.info(fields, 'history.save');
+    logRouteOutcome('history.save', start, ctx);
   }
 }
