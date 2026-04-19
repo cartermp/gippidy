@@ -365,6 +365,19 @@ export default function Home() {
       return false;
     });
 
+  const waitForHistorySaveReady = async (): Promise<CryptoKey | null> => {
+    if (!initialSettingsLoadedRef.current || !cryptoKeyRef.current) await keyReadyRef.current;
+    if (!saveHistoryRef.current) return null;
+    const key = cryptoKeyRef.current;
+    if (!key) {
+      logClientEvent('history.save_skipped_no_key', 'warn', {
+        initialSettingsLoaded: initialSettingsLoadedRef.current,
+      });
+      return null;
+    }
+    return key;
+  };
+
   const fetchHistoryItems = async (): Promise<HistoryItem[] | null> => {
     const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
     await Promise.race([keyReadyRef.current, keyTimeout]);
@@ -756,59 +769,54 @@ export default function Home() {
       textareaRef.current?.focus();
       webSearchPhaseRef.current = 'off';
       setWebSearchPhase('off');
-      if (saveHistoryRef.current) {
-        (async () => {
-          try {
-            const key = cryptoKeyRef.current;
-            if (!key) {
-              logClientEvent('history.save_skipped_no_key', 'warn');
-              return;
-            }
-            const title = finalMsgs.find(m => m.role === 'user')?.content.slice(0, 60) ?? 'Untitled';
-            const toSave = stripMessageHtml(finalMsgs);
-            const { iv, ciphertext } = await encrypt(key, { messages: toSave, model: requestModel, systemPrompt: requestSystemPrompt, title });
-            const ciphertextBytes = Math.round((ciphertext.length ?? 0) * 0.75);
-            const body = JSON.stringify({ id: chatIdRef.current, iv, ciphertext });
-            const bodyBytes = new TextEncoder().encode(body).length;
-            if (bodyBytes > LIMITS.historyBodyBytes || ciphertextBytes > LIMITS.maxCiphertextBytes) {
-              logClientEvent('history.save_too_large', 'warn', {
-                id: chatIdRef.current,
-                msgs: toSave.length,
-                bodyBytes,
-                maxBodyBytes: LIMITS.historyBodyBytes,
-                ciphertextBytes,
-                maxCiphertextBytes: LIMITS.maxCiphertextBytes,
-              });
-              return;
-            }
-            const res = await fetch('/api/history', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body,
+      (async () => {
+        try {
+          const key = await waitForHistorySaveReady();
+          if (!key) return;
+          const title = finalMsgs.find(m => m.role === 'user')?.content.slice(0, 60) ?? 'Untitled';
+          const toSave = stripMessageHtml(finalMsgs);
+          const { iv, ciphertext } = await encrypt(key, { messages: toSave, model: requestModel, systemPrompt: requestSystemPrompt, title });
+          const ciphertextBytes = Math.round((ciphertext.length ?? 0) * 0.75);
+          const body = JSON.stringify({ id: chatIdRef.current, iv, ciphertext });
+          const bodyBytes = new TextEncoder().encode(body).length;
+          if (bodyBytes > LIMITS.historyBodyBytes || ciphertextBytes > LIMITS.maxCiphertextBytes) {
+            logClientEvent('history.save_too_large', 'warn', {
+              id: chatIdRef.current,
+              msgs: toSave.length,
+              bodyBytes,
+              maxBodyBytes: LIMITS.historyBodyBytes,
+              ciphertextBytes,
+              maxCiphertextBytes: LIMITS.maxCiphertextBytes,
             });
-            if (!res.ok) {
-              const error = (await res.text()).slice(0, LIMITS.maxClientEventValueChars);
-              logClientEvent('history.save_failed', 'warn', {
-                status: res.status,
-                requestId: res.headers.get('x-request-id'),
-                id: chatIdRef.current,
-                msgs: toSave.length,
-                bodyBytes,
-                ciphertextBytes,
-                error,
-              });
-              return;
-            }
-            const { id } = await res.json();
-            chatIdRef.current = id;
-            rememberActiveHistoryChat(id);
-            setSavedFlash(true);
-            setTimeout(() => setSavedFlash(false), 2000);
-          } catch (error) {
-            logClientEvent('history.save_failed', 'error', getClientErrorDetails(error));
+            return;
           }
-        })();
-      }
+          const res = await fetch('/api/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          });
+          if (!res.ok) {
+            const error = (await res.text()).slice(0, LIMITS.maxClientEventValueChars);
+            logClientEvent('history.save_failed', 'warn', {
+              status: res.status,
+              requestId: res.headers.get('x-request-id'),
+              id: chatIdRef.current,
+              msgs: toSave.length,
+              bodyBytes,
+              ciphertextBytes,
+              error,
+            });
+            return;
+          }
+          const { id } = await res.json();
+          chatIdRef.current = id;
+          rememberActiveHistoryChat(id);
+          setSavedFlash(true);
+          setTimeout(() => setSavedFlash(false), 2000);
+        } catch (error) {
+          logClientEvent('history.save_failed', 'error', getClientErrorDetails(error));
+        }
+      })();
     };
 
     const doTick = () => {

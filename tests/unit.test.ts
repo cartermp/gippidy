@@ -461,6 +461,22 @@ test('history drawer still loads the latest 50 saved chats', () => {
 test('history save logs meaningful failure details before and after the network request', () => {
   const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
   assert.ok(
+    pageSource.includes('const waitForHistorySaveReady = async (): Promise<CryptoKey | null> => {'),
+    'history saves should have a dedicated readiness helper so completed responses can wait for startup hydration',
+  );
+  assert.ok(
+    pageSource.includes('if (!initialSettingsLoadedRef.current || !cryptoKeyRef.current) await keyReadyRef.current;'),
+    'history saves should wait for settings/key hydration when startup is still in flight',
+  );
+  assert.ok(
+    pageSource.includes('const key = await waitForHistorySaveReady();'),
+    'history saves should resolve readiness after the assistant response finishes, before persisting history',
+  );
+  assert.ok(
+    pageSource.includes('if (!key) return;'),
+    'history saves should skip only after the readiness helper decides saving is not possible',
+  );
+  assert.ok(
     pageSource.includes('const bodyBytes = new TextEncoder().encode(body).length;'),
     'history saves should measure request size before posting so oversized chats are diagnosable',
   );
