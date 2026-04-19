@@ -425,6 +425,12 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
     'starting a new chat should cancel the pending startup restore and clear the stale saved-chat selection',
   );
   assert.ok(
+    source.includes('const startFreshChat = () => {') &&
+      source.includes('<a className="logo" href="/" onClick={startFreshChat}>GIPPIDY</a>') &&
+      source.includes('<button onClick={startFreshChat}>[CLEAR]</button>'),
+    'the logo and [CLEAR] should use the same fresh-chat path so explicit new-chat actions clear the persisted active history selection',
+  );
+  assert.ok(
     source.includes("logClientEvent('history.restore_fetch_failed'"),
     'page should log a specific restore failure instead of only a generic settings load failure',
   );

@@ -730,6 +730,13 @@ export default function Home() {
     }
   };
 
+  const startFreshChat = () => {
+    cancelPendingStartupHistoryRestore(true);
+    setMessages([]);
+    chatIdRef.current = null;
+    rememberActiveHistoryChat(null);
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (e.target.value.trim()) cancelPendingStartupHistoryRestore(true);
     setInput(e.target.value);
@@ -1072,7 +1079,7 @@ export default function Home() {
   return (
     <div className="app">
       <header>
-        <a className="logo" href="/">GIPPIDY</a>
+        <a className="logo" href="/" onClick={startFreshChat}>GIPPIDY</a>
         <span className="model-label">
           {MODELS.find(m => m.id === model)?.label}
           {savedFlash && <span className="saved-flash"> ✓ saved</span>}
@@ -1085,7 +1092,7 @@ export default function Home() {
             <button onClick={handleShare}>{shareLabel}</button>
           )}
           {messages.length > 0 && (
-            <button onClick={() => { setMessages([]); chatIdRef.current = null; rememberActiveHistoryChat(null); }}>[CLEAR]</button>
+            <button onClick={startFreshChat}>[CLEAR]</button>
           )}
           <button onClick={() => signOut({ callbackUrl: '/login' })}>[SIGN OUT]</button>
         </div>
