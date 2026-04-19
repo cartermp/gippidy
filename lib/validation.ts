@@ -193,6 +193,8 @@ export function validateHistorySaveRequest(input: unknown): ValidationResult<{
   id?: string;
   iv: string;
   ciphertext: string;
+  titleIv?: string;
+  titleCiphertext?: string;
 }> {
   if (!isPlainObject(input)) return fail('invalid request body');
   if (input.id !== undefined && typeof input.id !== 'string') return fail('invalid id');
@@ -202,10 +204,21 @@ export function validateHistorySaveRequest(input: unknown): ValidationResult<{
   }
   if (typeof input.ciphertext !== 'string' || input.ciphertext.length === 0) return fail('invalid ciphertext');
   if (bytesFromBase64(input.ciphertext) > LIMITS.maxCiphertextBytes) return fail('ciphertext too large', 413);
+  const hasTitleFields = input.titleIv !== undefined || input.titleCiphertext !== undefined;
+  if (hasTitleFields) {
+    if (typeof input.titleIv !== 'string' || input.titleIv.length === 0 || input.titleIv.length > LIMITS.maxIvChars) {
+      return fail('invalid titleIv');
+    }
+    if (typeof input.titleCiphertext !== 'string' || input.titleCiphertext.length === 0) return fail('invalid titleCiphertext');
+    if (bytesFromBase64(input.titleCiphertext) > LIMITS.maxCiphertextBytes) return fail('titleCiphertext too large', 413);
+  }
   return ok({
     ...(typeof input.id === 'string' ? { id: input.id } : {}),
     iv: input.iv,
     ciphertext: input.ciphertext,
+    ...(typeof input.titleIv === 'string' && typeof input.titleCiphertext === 'string'
+      ? { titleIv: input.titleIv, titleCiphertext: input.titleCiphertext }
+      : {}),
   });
 }
 

@@ -408,6 +408,11 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
     'page should rehydrate the previously active saved chat after refresh',
   );
   assert.ok(
+    source.includes('setHistoryOpeningId(item.id);') &&
+      source.includes('const restored = await fetchHistoryItem(item.id);'),
+    'history drawer selection should fetch and decrypt the selected chat on demand instead of relying on the list payload',
+  );
+  assert.ok(
     source.includes('rememberActiveHistoryChat(id);'),
     'saving or loading a chat should persist the active saved chat id',
   );
@@ -436,9 +441,14 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
 test('history drawer still loads the latest 50 saved chats', () => {
   const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
   const historyRouteSource = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
+  const migrateSource = readFileSync(join(import.meta.dirname, '../scripts/migrate.mjs'), 'utf8');
   assert.ok(
-    pageSource.includes("const res = await fetch('/api/history');"),
-    'history drawer should load saved chats from the history list endpoint',
+    pageSource.includes("const res = await fetch('/api/history?titles=1');"),
+    'history drawer should request the lightweight title-preview history endpoint',
+  );
+  assert.ok(
+    pageSource.includes('const title = await decryptHistoryTitle(key, row);'),
+    'history drawer loading should decrypt only the saved title for each preview row',
   );
   assert.ok(
     pageSource.includes('await loadHistory();'),
@@ -449,12 +459,26 @@ test('history drawer still loads the latest 50 saved chats', () => {
     'history list endpoint should return the latest 50 saved chats first',
   );
   assert.ok(
+    historyRouteSource.includes("const titleOnly = new URL(req.url).searchParams.get('titles') === '1';"),
+    'history list endpoint should support a title-only preview mode for faster drawer loads',
+  );
+  assert.ok(
+    historyRouteSource.includes('CASE WHEN title_ciphertext IS NULL THEN iv ELSE NULL END AS iv') &&
+      historyRouteSource.includes('CASE WHEN title_ciphertext IS NULL THEN ciphertext ELSE NULL END AS ciphertext'),
+    'history list preview mode should fall back to the legacy full ciphertext only for rows that do not have split title payloads yet',
+  );
+  assert.ok(
     historyRouteSource.includes('ctx.topUpdatedAt = rows[0]?.updated_at ?? null;'),
     'history list logs should include the updated_at timestamp of the top visible row',
   );
   assert.ok(
     historyRouteSource.includes("logRouteOutcome('history.list', start, ctx);"),
     'history list endpoint should continue emitting the canonical history.list log for the visible latest-history window',
+  );
+  assert.ok(
+    migrateSource.includes('ALTER TABLE chat_histories ADD COLUMN IF NOT EXISTS title_iv TEXT') &&
+      migrateSource.includes('ALTER TABLE chat_histories ADD COLUMN IF NOT EXISTS title_ciphertext TEXT'),
+    'history migration should add split encrypted title columns for lightweight preview loading',
   );
 });
 
@@ -482,16 +506,20 @@ test('history save logs meaningful failure details before and after the network 
   );
   assert.ok(
     pageSource.includes(`currentHistoryId
-              ? { id: currentHistoryId, iv, ciphertext }
-              : { iv, ciphertext }`),
-    'history saves should omit id entirely for new chats so the API creates a new history row',
+              ? { id: currentHistoryId, iv, ciphertext, titleIv, titleCiphertext }
+              : { iv, ciphertext, titleIv, titleCiphertext }`),
+    'history saves should persist a separate encrypted title alongside the full encrypted chat payload',
+  );
+  assert.ok(
+    pageSource.includes('const { iv: titleIv, ciphertext: titleCiphertext } = await encrypt(key, title);'),
+    'history saves should encrypt the title separately so the drawer can decrypt previews without loading full chats',
   );
   assert.ok(
     pageSource.includes('const bodyBytes = new TextEncoder().encode(body).length;'),
     'history saves should measure request size before posting so oversized chats are diagnosable',
   );
   assert.ok(
-    pageSource.includes('bodyBytes > LIMITS.historyBodyBytes || ciphertextBytes > LIMITS.maxCiphertextBytes'),
+    pageSource.includes('titleCiphertextBytes > LIMITS.maxCiphertextBytes'),
     'history saves should log when the encrypted payload is too large to persist',
   );
   assert.ok(
@@ -509,6 +537,10 @@ test('history save logs meaningful failure details before and after the network 
   assert.ok(
     pageSource.includes('ciphertextBytes,'),
     'history save failure logs should include the ciphertext size',
+  );
+  assert.ok(
+    pageSource.includes('titleCiphertextBytes,'),
+    'history save logs should include the split title ciphertext size for debugging preview writes',
   );
 });
 
@@ -529,6 +561,10 @@ test('history save route emits one wide canonical history.save log per POST atte
     'history save route should log whether the request included an id field at all',
   );
   assert.ok(
+    source.includes('hasTitleFields: false,'),
+    'history save route should log whether the request included split encrypted title fields',
+  );
+  assert.ok(
     source.includes('ctx.idFieldType = getFieldType(body.id);'),
     'history save route should log the type of the incoming id field for debugging invalid payloads',
   );
@@ -537,16 +573,18 @@ test('history save route emits one wide canonical history.save log per POST atte
     'history save route should capture the requested id before validation',
   );
   assert.ok(
-    source.includes('ctx.savedId = result.rows[0].id;'),
+    source.includes('const result = await saveHistoryRow(session.user.email, parsed.value);') &&
+      source.includes('ctx.savedId = result.savedId;'),
     'history save route should log the final saved history id',
   );
   assert.ok(
-    source.includes('ctx.resolvedOp = \'insert\';'),
-    'history save route should log whether the request resolved as an insert',
+    source.includes('title_ciphertext = $4') &&
+      source.includes('INSERT INTO chat_histories (id, user_email, iv, ciphertext, title_iv, title_ciphertext)'),
+    'history save route should write split title ciphertext fields when the schema supports them',
   );
   assert.ok(
-    source.includes('ctx.resolvedOp = \'update\';'),
-    'history save route should log whether the request resolved as an update',
+    source.includes('return { ...(await attempt(false)), legacySchema: true };'),
+    'history save route should fall back to the legacy history schema when split title columns are not available yet',
   );
   assert.ok(
     logSource.includes('export function logByStatus(') &&
@@ -849,6 +887,14 @@ test('encrypt/decrypt: handles unicode and nested objects', async () => {
   const { iv, ciphertext } = await encrypt(key, data);
   const out  = await decrypt<typeof data>(key, iv, ciphertext);
   assert.deepEqual(out, data);
+});
+
+test('encrypt/decrypt: string titles round-trip for history previews', async () => {
+  const key = await makeKey();
+  const title = 'coffee chat';
+  const { iv, ciphertext } = await encrypt(key, title);
+  const out = await decrypt<string>(key, iv, ciphertext);
+  assert.equal(out, title);
 });
 
 // Regression: btoa(String.fromCharCode(...large array)) throws "Maximum call stack

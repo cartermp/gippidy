@@ -31,7 +31,17 @@ const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
   FOLLOWUPS_XML_SYSTEM_PROMPT,
 ].join(' ');
 
+type HistoryPayload = { messages: Message[]; model: string; systemPrompt: string; title: string };
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
+type HistoryPreview = { id: string; title: string; updatedAt: string };
+type HistoryListRow = {
+  id: string;
+  updated_at: string;
+  title_iv?: string | null;
+  title_ciphertext?: string | null;
+  iv?: string | null;
+  ciphertext?: string | null;
+};
 type HistoryRow = { id: string; iv: string; ciphertext: string; updated_at: string };
 type HistoryRestoreResult =
   | { kind: 'ok'; item: HistoryItem }
@@ -62,6 +72,25 @@ function toConversationMessages(messages: Message[]): Array<Omit<Message, 'html'
       ? { ...message, content: splitMessageFollowups(message.content).content }
       : message
   ));
+}
+
+function normalizeHistoryTitle(title: unknown): string {
+  return typeof title === 'string' && title.trim() ? title : 'Untitled';
+}
+
+async function decryptHistoryPayload(key: CryptoKey, row: Pick<HistoryRow, 'iv' | 'ciphertext'>): Promise<HistoryPayload> {
+  return decrypt<HistoryPayload>(key, row.iv, row.ciphertext);
+}
+
+async function decryptHistoryTitle(key: CryptoKey, row: HistoryListRow): Promise<string> {
+  if (typeof row.title_iv === 'string' && typeof row.title_ciphertext === 'string') {
+    return normalizeHistoryTitle(await decrypt<string>(key, row.title_iv, row.title_ciphertext));
+  }
+  if (typeof row.iv === 'string' && typeof row.ciphertext === 'string') {
+    const payload = await decryptHistoryPayload(key, { iv: row.iv, ciphertext: row.ciphertext });
+    return normalizeHistoryTitle(payload.title);
+  }
+  throw new Error('history_preview_missing_title_payload');
 }
 
 function setGirlModeDom(enabled: boolean) {
@@ -187,8 +216,9 @@ export default function Home() {
   const [saveHistory, setSaveHistory]           = useState(false);
   const [girlMode, setGirlMode]                 = useState(false);
   const [showHistory, setShowHistory]           = useState(false);
-  const [historyItems, setHistoryItems]         = useState<HistoryItem[]>([]);
+  const [historyItems, setHistoryItems]         = useState<HistoryPreview[]>([]);
   const [historyLoading, setHistoryLoading]     = useState(false);
+  const [historyOpeningId, setHistoryOpeningId] = useState<string | null>(null);
   const [historySearch, setHistorySearch]       = useState('');
   const chatIdRef    = useRef<string | null>(null);
   const cryptoKeyRef = useRef<CryptoKey | null>(null);
@@ -378,7 +408,7 @@ export default function Home() {
     return key;
   };
 
-  const fetchHistoryItems = async (): Promise<HistoryItem[] | null> => {
+  const fetchHistoryItems = async (): Promise<HistoryPreview[] | null> => {
     const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
     await Promise.race([keyReadyRef.current, keyTimeout]);
     const key = cryptoKeyRef.current;
@@ -386,7 +416,7 @@ export default function Home() {
       logClientEvent('history.key_unavailable', 'error');
       return null;
     }
-    const res = await fetch('/api/history');
+    const res = await fetch('/api/history?titles=1');
     if (!res.ok) {
       logClientEvent('history.fetch_failed', 'error', {
         status: res.status,
@@ -394,21 +424,21 @@ export default function Home() {
       });
       return null;
     }
-    const rows = await res.json() as HistoryRow[];
-    const ordered = Array<HistoryItem | null>(rows.length).fill(null);
+    const rows = await res.json() as HistoryListRow[];
+    const ordered = Array<HistoryPreview | null>(rows.length).fill(null);
     let failed = 0;
     let firstFailedId: string | null = null;
     await Promise.allSettled(rows.map(async (row, i) => {
       try {
-        const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
-        ordered[i] = { id: row.id, updatedAt: row.updated_at, ...data };
+        const title = await decryptHistoryTitle(key, row);
+        ordered[i] = { id: row.id, updatedAt: row.updated_at, title };
       } catch {
         failed++;
         if (!firstFailedId) firstFailedId = row.id;
       }
     }));
     if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length, firstFailedId });
-    return ordered.filter((item): item is HistoryItem => Boolean(item));
+    return ordered.filter((item): item is HistoryPreview => Boolean(item));
   };
 
   const fetchHistoryItem = async (id: string): Promise<HistoryRestoreResult> => {
@@ -438,8 +468,8 @@ export default function Home() {
       }
       const row = await res.json() as HistoryRow;
       try {
-        const data = await decrypt<{ messages: Message[]; model: string; systemPrompt: string; title: string }>(key, row.iv, row.ciphertext);
-        return { kind: 'ok', item: { id: row.id, updatedAt: row.updated_at, ...data } };
+        const data = await decryptHistoryPayload(key, row);
+        return { kind: 'ok', item: { id: row.id, updatedAt: row.updated_at, ...data, title: normalizeHistoryTitle(data.title) } };
       } catch {
         logClientEvent('history.restore_decrypt_failed', 'warn', { id });
         return { kind: 'error' };
@@ -646,6 +676,7 @@ export default function Home() {
 
   const loadHistory = async () => {
     setHistoryLoading(true);
+    setHistoryOpeningId(null);
     setHistoryItems([]);
     try {
       const items = await fetchHistoryItems();
@@ -666,10 +697,21 @@ export default function Home() {
     await loadHistory();
   };
 
-  const handleLoadChat = (item: HistoryItem) => {
+  const handleLoadChat = async (item: HistoryPreview) => {
     cancelPendingStartupHistoryRestore();
-    applyLoadedChat(item);
-    setShowHistory(false);
+    setHistoryOpeningId(item.id);
+    try {
+      const restored = await fetchHistoryItem(item.id);
+      if (restored.kind === 'ok') {
+        applyLoadedChat(restored.item);
+        setShowHistory(false);
+      } else if (restored.kind === 'missing') {
+        rememberActiveHistoryChat(null);
+        setHistoryItems(items => items.filter(i => i.id !== item.id));
+      }
+    } finally {
+      setHistoryOpeningId(current => (current === item.id ? null : current));
+    }
   };
 
   const handleDeleteChat = async (id: string) => {
@@ -773,18 +815,24 @@ export default function Home() {
         try {
           const key = await waitForHistorySaveReady();
           if (!key) return;
-          const title = finalMsgs.find(m => m.role === 'user')?.content.slice(0, 60) ?? 'Untitled';
+          const title = normalizeHistoryTitle(finalMsgs.find(m => m.role === 'user')?.content.slice(0, 60) ?? 'Untitled');
           const toSave = stripMessageHtml(finalMsgs);
           const { iv, ciphertext } = await encrypt(key, { messages: toSave, model: requestModel, systemPrompt: requestSystemPrompt, title });
+          const { iv: titleIv, ciphertext: titleCiphertext } = await encrypt(key, title);
           const ciphertextBytes = Math.round((ciphertext.length ?? 0) * 0.75);
+          const titleCiphertextBytes = Math.round((titleCiphertext.length ?? 0) * 0.75);
           const currentHistoryId = chatIdRef.current;
           const body = JSON.stringify(
             currentHistoryId
-              ? { id: currentHistoryId, iv, ciphertext }
-              : { iv, ciphertext },
+              ? { id: currentHistoryId, iv, ciphertext, titleIv, titleCiphertext }
+              : { iv, ciphertext, titleIv, titleCiphertext },
           );
           const bodyBytes = new TextEncoder().encode(body).length;
-          if (bodyBytes > LIMITS.historyBodyBytes || ciphertextBytes > LIMITS.maxCiphertextBytes) {
+          if (
+            bodyBytes > LIMITS.historyBodyBytes ||
+            ciphertextBytes > LIMITS.maxCiphertextBytes ||
+            titleCiphertextBytes > LIMITS.maxCiphertextBytes
+          ) {
             logClientEvent('history.save_too_large', 'warn', {
               id: currentHistoryId,
               msgs: toSave.length,
@@ -792,6 +840,7 @@ export default function Home() {
               maxBodyBytes: LIMITS.historyBodyBytes,
               ciphertextBytes,
               maxCiphertextBytes: LIMITS.maxCiphertextBytes,
+              titleCiphertextBytes,
             });
             return;
           }
@@ -809,6 +858,7 @@ export default function Home() {
                 msgs: toSave.length,
                 bodyBytes,
                 ciphertextBytes,
+                titleCiphertextBytes,
                 error,
               });
             return;
@@ -1097,7 +1147,7 @@ export default function Home() {
                   />
                 </div>
               )}
-              {historyLoading && historyItems.length === 0 && <div className="empty">decrypting…</div>}
+              {historyLoading && historyItems.length === 0 && <div className="empty">loading…</div>}
               {!historyLoading && historyItems.length === 0 && (
                 <div className="empty">no saved chats yet</div>
               )}
@@ -1110,9 +1160,9 @@ export default function Home() {
                   return <div className="empty">no matches</div>;
                 }
                 return filtered.map(item => (
-                  <div key={item.id} className="history-item" onClick={() => handleLoadChat(item)}>
+                  <div key={item.id} className="history-item" onClick={() => { void handleLoadChat(item); }}>
                     <span className="history-date">{item.updatedAt.slice(0, 10)}</span>
-                    <span className="history-title">{item.title}</span>
+                    <span className="history-title">{historyOpeningId === item.id ? `${item.title} [OPENING...]` : item.title}</span>
                     <button
                       type="button"
                       className="history-delete"

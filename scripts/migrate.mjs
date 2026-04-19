@@ -41,8 +41,16 @@ await pool.query(`
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW(),
     iv          TEXT NOT NULL,
-    ciphertext  TEXT NOT NULL
+    ciphertext  TEXT NOT NULL,
+    title_iv    TEXT,
+    title_ciphertext TEXT
   )
+`);
+await pool.query(`
+  ALTER TABLE chat_histories ADD COLUMN IF NOT EXISTS title_iv TEXT
+`);
+await pool.query(`
+  ALTER TABLE chat_histories ADD COLUMN IF NOT EXISTS title_ciphertext TEXT
 `);
 await pool.query(`
   CREATE INDEX IF NOT EXISTS chat_histories_user_updated
