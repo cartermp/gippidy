@@ -400,7 +400,10 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
     'page should restore the active saved chat by directly fetching that history row',
   );
   assert.ok(
-    source.includes('if (pendingStartupHistoryRestoreRef.current !== restoreId) return;'),
+    source.includes(`if (pendingStartupHistoryRestoreRef.current !== restoreId) {
+            prewarmHistoryItems();
+            return;
+          }`),
     'page should skip applying a delayed restore after the user has already moved on',
   );
   assert.ok(
@@ -451,12 +454,42 @@ test('history drawer still loads the latest 50 saved chats', () => {
   const historyRouteSource = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
   const migrateSource = readFileSync(join(import.meta.dirname, '../scripts/migrate.mjs'), 'utf8');
   assert.ok(
+    pageSource.includes("const HISTORY_PREVIEW_CACHE_KEY = 'gippidy-history-preview-cache';"),
+    'history drawer should keep decrypted preview titles only in session-scoped storage for faster refreshes',
+  );
+  assert.ok(
     pageSource.includes("const res = await fetch('/api/history?titles=1');"),
     'history drawer should request the lightweight title-preview history endpoint',
   );
   assert.ok(
     pageSource.includes('const title = await decryptHistoryTitle(key, row);'),
     'history drawer loading should decrypt only the saved title for each preview row',
+  );
+  assert.ok(
+    pageSource.includes('const raw = sessionStorage.getItem(HISTORY_PREVIEW_CACHE_KEY);') &&
+      pageSource.includes('sessionStorage.setItem(HISTORY_PREVIEW_CACHE_KEY, JSON.stringify(cache));'),
+    'history preview loading should reuse a sessionStorage cache instead of re-decrypting unchanged titles on every refresh',
+  );
+  assert.ok(
+    pageSource.includes('const cached = historyPreviewCacheRef.current[row.id];') &&
+      pageSource.includes('cached.updatedAt === row.updated_at'),
+    'history preview loading should skip title decryption when the cached preview still matches the row updated_at timestamp',
+  );
+  assert.ok(
+    pageSource.includes('const historyPreviewItemsRef = useRef<HistoryPreview[] | null>(null);') &&
+      pageSource.includes('if (historyPreviewItemsRef.current) setHistoryItems(historyPreviewItemsRef.current);'),
+    'history drawer should reuse warmed preview items immediately when they are already in memory',
+  );
+  assert.ok(
+    pageSource.includes('historyWarmTimerRef.current = setTimeout(() => {') &&
+      pageSource.includes('void getHistoryItems();'),
+    'history previews should prewarm in the background after startup key hydration so opening history is usually instant',
+  );
+  assert.ok(
+    pageSource.includes('const historyPreviewVersionRef = useRef(0);') &&
+      pageSource.includes('historyPreviewVersionRef.current += 1;') &&
+      pageSource.includes('if (items && historyPreviewVersionRef.current === version) {'),
+    'history preview warming should ignore stale in-flight loads after saves or deletes change the visible history list',
   );
   assert.ok(
     pageSource.includes('await loadHistory();'),
@@ -526,6 +559,11 @@ test('history save logs meaningful failure details before and after the network 
   assert.ok(
     pageSource.includes('const { iv: titleIv, ciphertext: titleCiphertext } = await encrypt(key, title);'),
     'history saves should encrypt the title separately so the drawer can decrypt previews without loading full chats',
+  );
+  assert.ok(
+    pageSource.includes('historyPreviewItemsRef.current = null;') &&
+      pageSource.includes('prewarmHistoryItems();'),
+    'history saves should invalidate and refresh warmed previews so the drawer picks up the latest saved chat state',
   );
   assert.ok(
     pageSource.includes('const bodyBytes = new TextEncoder().encode(body).length;'),

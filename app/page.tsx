@@ -16,6 +16,7 @@ const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
 const GIRL_MODE_KEY = 'gippidy-girl-mode';
 const ACTIVE_HISTORY_CHAT_KEY = 'gippidy-active-history-chat';
+const HISTORY_PREVIEW_CACHE_KEY = 'gippidy-history-preview-cache';
 const GIRL_MODE_ATTR = 'data-girl-mode';
 const STREAM_MARKDOWN_INTERVAL_MS = 120;
 const FOLLOWUPS_XML_SYSTEM_PROMPT = 'IF AND ONLY IF you suggest follow-up topics for conversation, wrap the text of those topics in a field called <followups>, with each individual topic wrapped in <followup> tags.';
@@ -34,6 +35,8 @@ const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
 type HistoryPayload = { messages: Message[]; model: string; systemPrompt: string; title: string };
 type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
 type HistoryPreview = { id: string; title: string; updatedAt: string };
+type HistoryPreviewCacheEntry = { title: string; updatedAt: string };
+type HistoryPreviewCache = Record<string, HistoryPreviewCacheEntry>;
 type HistoryListRow = {
   id: string;
   updated_at: string;
@@ -91,6 +94,31 @@ async function decryptHistoryTitle(key: CryptoKey, row: HistoryListRow): Promise
     return normalizeHistoryTitle(payload.title);
   }
   throw new Error('history_preview_missing_title_payload');
+}
+
+function readHistoryPreviewCache(): HistoryPreviewCache {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = sessionStorage.getItem(HISTORY_PREVIEW_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, { title?: unknown; updatedAt?: unknown }>;
+    const cache: HistoryPreviewCache = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== 'object') continue;
+      if (typeof value.title !== 'string' || typeof value.updatedAt !== 'string') continue;
+      cache[id] = { title: normalizeHistoryTitle(value.title), updatedAt: value.updatedAt };
+    }
+    return cache;
+  } catch {
+    return {};
+  }
+}
+
+function writeHistoryPreviewCache(cache: HistoryPreviewCache) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(HISTORY_PREVIEW_CACHE_KEY, JSON.stringify(cache));
+  } catch {}
 }
 
 function setGirlModeDom(enabled: boolean) {
@@ -239,6 +267,12 @@ export default function Home() {
   const draftInputRef      = useRef('');
   const latestStreamingTextRef = useRef('');
   const lastRenderedStreamingTextRef = useRef('');
+  const historyPreviewItemsRef = useRef<HistoryPreview[] | null>(null);
+  const historyPreviewPromiseRef = useRef<Promise<HistoryPreview[] | null> | null>(null);
+  const historyPreviewCacheRef = useRef<HistoryPreviewCache>({});
+  const historyPreviewCacheLoadedRef = useRef(false);
+  const historyWarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyPreviewVersionRef = useRef(0);
 
   // Resolves when the crypto key has been loaded from/saved to the server.
   // loadHistory awaits this so it never races against the settings fetch.
@@ -267,6 +301,7 @@ export default function Home() {
   useEffect(() => () => {
     if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
     if (streamingHtmlTimerRef.current) clearTimeout(streamingHtmlTimerRef.current);
+    if (historyWarmTimerRef.current) clearTimeout(historyWarmTimerRef.current);
   }, []);
 
   const renderStreamingMarkdown = (text: string) => {
@@ -410,6 +445,37 @@ export default function Home() {
     return key;
   };
 
+  const ensureHistoryPreviewCacheLoaded = () => {
+    if (historyPreviewCacheLoadedRef.current) return;
+    historyPreviewCacheRef.current = readHistoryPreviewCache();
+    historyPreviewCacheLoadedRef.current = true;
+  };
+
+  const storeHistoryPreviewCache = (items: HistoryPreview[]) => {
+    ensureHistoryPreviewCacheLoaded();
+    const nextCache: HistoryPreviewCache = {};
+    items.forEach(item => {
+      nextCache[item.id] = { title: item.title, updatedAt: item.updatedAt };
+    });
+    historyPreviewCacheRef.current = nextCache;
+    writeHistoryPreviewCache(nextCache);
+  };
+
+  const dropHistoryPreviewCacheEntry = (id: string) => {
+    ensureHistoryPreviewCacheLoaded();
+    if (!historyPreviewCacheRef.current[id]) return;
+    const nextCache = { ...historyPreviewCacheRef.current };
+    delete nextCache[id];
+    historyPreviewCacheRef.current = nextCache;
+    writeHistoryPreviewCache(nextCache);
+  };
+
+  const invalidateHistoryPreviewItems = () => {
+    historyPreviewVersionRef.current += 1;
+    historyPreviewItemsRef.current = null;
+    historyPreviewPromiseRef.current = null;
+  };
+
   const fetchHistoryItems = async (): Promise<HistoryPreview[] | null> => {
     const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
     await Promise.race([keyReadyRef.current, keyTimeout]);
@@ -427,10 +493,16 @@ export default function Home() {
       return null;
     }
     const rows = await res.json() as HistoryListRow[];
+    ensureHistoryPreviewCacheLoaded();
     const ordered = Array<HistoryPreview | null>(rows.length).fill(null);
     let failed = 0;
     let firstFailedId: string | null = null;
     await Promise.allSettled(rows.map(async (row, i) => {
+      const cached = historyPreviewCacheRef.current[row.id];
+      if (cached && cached.updatedAt === row.updated_at) {
+        ordered[i] = { id: row.id, updatedAt: row.updated_at, title: cached.title };
+        return;
+      }
       try {
         const title = await decryptHistoryTitle(key, row);
         ordered[i] = { id: row.id, updatedAt: row.updated_at, title };
@@ -439,8 +511,39 @@ export default function Home() {
         if (!firstFailedId) firstFailedId = row.id;
       }
     }));
+    const items = ordered.filter((item): item is HistoryPreview => Boolean(item));
     if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length, firstFailedId });
-    return ordered.filter((item): item is HistoryPreview => Boolean(item));
+    return items;
+  };
+
+  const getHistoryItems = async (): Promise<HistoryPreview[] | null> => {
+    if (historyPreviewItemsRef.current) return historyPreviewItemsRef.current;
+    if (historyPreviewPromiseRef.current) return historyPreviewPromiseRef.current;
+
+    const version = historyPreviewVersionRef.current;
+    const run = (async () => {
+      const items = await fetchHistoryItems();
+      if (items && historyPreviewVersionRef.current === version) {
+        historyPreviewItemsRef.current = items;
+        storeHistoryPreviewCache(items);
+        return items;
+      }
+      return null;
+    })();
+    historyPreviewPromiseRef.current = run;
+    try {
+      return await run;
+    } finally {
+      if (historyPreviewPromiseRef.current === run) historyPreviewPromiseRef.current = null;
+    }
+  };
+
+  const prewarmHistoryItems = () => {
+    if (historyWarmTimerRef.current) clearTimeout(historyWarmTimerRef.current);
+    historyWarmTimerRef.current = setTimeout(() => {
+      historyWarmTimerRef.current = null;
+      void getHistoryItems();
+    }, 0);
   };
 
   const fetchHistoryItem = async (id: string): Promise<HistoryRestoreResult> => {
@@ -553,11 +656,15 @@ export default function Home() {
         const restoreId = pendingStartupHistoryRestoreRef.current;
         if (!restoredFork && restoreId) {
           const restored = await fetchHistoryItem(restoreId);
-          if (pendingStartupHistoryRestoreRef.current !== restoreId) return;
+          if (pendingStartupHistoryRestoreRef.current !== restoreId) {
+            prewarmHistoryItems();
+            return;
+          }
           pendingStartupHistoryRestoreRef.current = null;
           if (restored.kind === 'ok') applyLoadedChat(restored.item);
           else if (restored.kind === 'missing') rememberActiveHistoryChat(null);
         }
+        prewarmHistoryItems();
       })
       .catch(error => {
         const { name, message } = getClientErrorDetails(error);
@@ -680,9 +787,10 @@ export default function Home() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     setHistoryOpeningId(null);
-    setHistoryItems([]);
+    if (historyPreviewItemsRef.current) setHistoryItems(historyPreviewItemsRef.current);
+    else setHistoryItems([]);
     try {
-      const items = await fetchHistoryItems();
+      const items = await getHistoryItems();
       if (!items) return;
       setHistoryItems(items);
     } catch (error) {
@@ -726,7 +834,12 @@ export default function Home() {
       });
       return;
     }
-    setHistoryItems(items => items.filter(i => i.id !== id));
+    const nextHistoryItems = (historyPreviewItemsRef.current ?? historyItems).filter(item => item.id !== id);
+    invalidateHistoryPreviewItems();
+    historyPreviewItemsRef.current = nextHistoryItems;
+    dropHistoryPreviewCacheEntry(id);
+    storeHistoryPreviewCache(nextHistoryItems);
+    setHistoryItems(nextHistoryItems);
     if (chatIdRef.current === id) {
       chatIdRef.current = null;
       rememberActiveHistoryChat(null);
@@ -895,6 +1008,8 @@ export default function Home() {
           if (chatStateVersionRef.current !== chatStateVersion || chatIdRef.current !== currentHistoryId) return;
           chatIdRef.current = id;
           rememberActiveHistoryChat(id);
+          invalidateHistoryPreviewItems();
+          prewarmHistoryItems();
           setSavedFlash(true);
           setTimeout(() => setSavedFlash(false), 2000);
         } catch (error) {
