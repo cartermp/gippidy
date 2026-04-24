@@ -60,7 +60,7 @@ test('getProvider: gemini models → google', () => {
 });
 
 test('getProvider: gpt models → openai', () => {
-  assert.equal(getProvider('gpt-5.4'), 'openai');
+  assert.equal(getProvider('gpt-5.5'), 'openai');
   assert.equal(getProvider('gpt-4o'), 'openai');
 });
 
