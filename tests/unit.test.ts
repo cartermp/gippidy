@@ -747,6 +747,217 @@ test('route verbs use canonical thick logging across settings, history, shares, 
   );
 });
 
+// ── product principles ────────────────────────────────────────────────────────
+
+test('chat request validation keeps multimodal input and opt-in web search simple', () => {
+  const validationSource = readFileSync(join(import.meta.dirname, '../lib/validation.ts'), 'utf8');
+
+  assert.ok(
+    validationSource.includes('if (raw.images !== undefined) {') &&
+      validationSource.includes('if (raw.pdfs !== undefined) {'),
+    'chat validation should continue accepting image and PDF attachments as first-class message fields',
+  );
+  assert.ok(
+    validationSource.includes("if (input.webSearch !== undefined && typeof input.webSearch !== 'boolean') return fail('invalid webSearch');") &&
+      validationSource.includes('webSearch: input.webSearch ?? false,'),
+    'chat validation should keep web search opt-in, type-checked, and defaulted off',
+  );
+  assert.ok(
+    validationSource.includes("if (typeof input.model !== 'string' || !ALLOWED_MODELS.has(input.model)) return fail('unknown model');"),
+    'chat validation should only allow the configured model list so the UI and API stay aligned',
+  );
+});
+
+test('chat request validation keeps requests bounded so the app stays responsive', () => {
+  const validationSource = readFileSync(join(import.meta.dirname, '../lib/validation.ts'), 'utf8');
+
+  assert.ok(
+    validationSource.includes('maxMessages: 200') &&
+      validationSource.includes('if (input.length > LIMITS.maxMessages) return fail(`too many messages (max ${LIMITS.maxMessages})`);'),
+    'chat validation should cap conversation size to prevent runaway request growth',
+  );
+  assert.ok(
+    validationSource.includes('maxImagesPerMessage: 8') &&
+      validationSource.includes("if (raw.images.length > LIMITS.maxImagesPerMessage) return fail('too many images', 413);"),
+    'chat validation should cap images per message so vision requests stay tractable',
+  );
+  assert.ok(
+    validationSource.includes('maxPdfsPerMessage: 4') &&
+      validationSource.includes("if (raw.pdfs.length > LIMITS.maxPdfsPerMessage) return fail('too many pdfs', 413);"),
+    'chat validation should cap PDFs per message so document uploads stay responsive',
+  );
+  assert.ok(
+    validationSource.includes("if (bytesFromBase64(input.data) > LIMITS.maxImageBytes) return fail('image too large', 413);") &&
+      validationSource.includes("if (bytesFromBase64(input.data) > LIMITS.maxPdfBytes) return fail('pdf too large', 413);"),
+    'chat validation should enforce byte caps on images and PDFs before upstream model calls',
+  );
+});
+
+test('dependency footprint stays deliberately small and SDK-free while using direct provider HTTP APIs', () => {
+  const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '../package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const deps = Object.keys(pkg.dependencies ?? {}).sort();
+  assert.deepEqual(deps, [
+    'highlight.js',
+    'marked',
+    'marked-highlight',
+    'next',
+    'next-auth',
+    'pg',
+    'pino',
+    'react',
+    'react-dom',
+  ]);
+
+  const allDeps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+  for (const banned of [
+    'openai',
+    '@anthropic-ai/sdk',
+    'anthropic',
+    '@google/generative-ai',
+    '@google/genai',
+    '@prisma/client',
+    'prisma',
+    'drizzle-orm',
+    'typeorm',
+    'sequelize',
+    'mongoose',
+    'tailwindcss',
+    '@mui/material',
+    'antd',
+  ]) {
+    assert.ok(!(banned in allDeps), `${banned} would violate the minimal-dependency architecture`);
+  }
+
+  const nextConfigSource = readFileSync(join(import.meta.dirname, '../next.config.ts'), 'utf8');
+  const chatRouteSource = readFileSync(join(import.meta.dirname, '../app/api/chat/route.ts'), 'utf8');
+  assert.ok(
+    nextConfigSource.includes("serverExternalPackages: ['pg', 'pino']"),
+    'server-only packages should stay external so the app bundle remains lean',
+  );
+  assert.ok(
+    nextConfigSource.includes("optimizePackageImports: ['highlight.js']"),
+    'highlight.js imports should stay optimized for faster client bundles',
+  );
+  assert.ok(
+    chatRouteSource.includes("fetch('https://api.openai.com/v1/responses'") &&
+      chatRouteSource.includes("fetch('https://api.openai.com/v1/chat/completions'") &&
+      chatRouteSource.includes("fetch('https://api.anthropic.com/v1/messages'") &&
+      chatRouteSource.includes('https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse'),
+    'provider calls should use the direct HTTP APIs instead of heavyweight SDKs',
+  );
+});
+
+test('composer and chat route preserve attachment-first turns and provider-native web search', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const chatRouteSource = readFileSync(join(import.meta.dirname, '../app/api/chat/route.ts'), 'utf8');
+
+  assert.ok(
+    pageSource.includes('const fileAttachments = pendingFiles') &&
+      pageSource.includes('`<file name="${f.name}">\\n${f.content}\\n</file>`'),
+    'text and code uploads should be inlined as XML-tagged file blocks for the model to read',
+  );
+  assert.ok(
+    pageSource.includes("accept=\"image/*,application/pdf,text/*"),
+    'the file picker should continue accepting images, PDFs, and plain text/code files',
+  );
+  assert.ok(
+    pageSource.includes('if ((!((nextInput ?? input).trim()) && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0) || streaming) return;') &&
+      pageSource.includes('disabled={!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0}'),
+    'attachment-only turns should remain sendable while truly empty submissions stay blocked',
+  );
+  assert.ok(
+    chatRouteSource.includes("if (provider === 'openai' && webSearch)") &&
+      chatRouteSource.includes("tools: [{ type: 'web_search' }]") &&
+      chatRouteSource.includes('/v1/responses'),
+    'OpenAI web search should keep using the native Responses API search tool',
+  );
+  assert.ok(
+    chatRouteSource.includes("if (provider === 'anthropic' && webSearch)") &&
+      chatRouteSource.includes("web_search_20250305"),
+    'Anthropic web search should keep using the native tool loop instead of a custom scraper',
+  );
+  assert.ok(
+    chatRouteSource.includes("provider === 'google'") &&
+      chatRouteSource.includes('{ tools: [{ googleSearch: {} }] }'),
+    'Gemini web search should keep using the built-in googleSearch tool',
+  );
+});
+
+test('privacy boundaries keep normal chats encrypted and make sharing an explicit exception', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const historySource = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
+  const shareSource = readFileSync(join(import.meta.dirname, '../app/api/shares/route.ts'), 'utf8');
+  const shareGetSource = readFileSync(join(import.meta.dirname, '../app/api/shares/[id]/route.ts'), 'utf8');
+  const migrateSource = readFileSync(join(import.meta.dirname, '../scripts/migrate.mjs'), 'utf8');
+
+  assert.ok(
+    pageSource.includes('const { iv, ciphertext } = await encrypt(key, { messages: toSave, model: requestModel, systemPrompt: requestSystemPrompt, title });'),
+    'history should continue encrypting the full chat client-side before it is sent to the server',
+  );
+  assert.ok(
+    historySource.includes('INSERT INTO chat_histories (id, user_email, iv, ciphertext, title_iv, title_ciphertext)') &&
+      historySource.includes('UPDATE chat_histories') &&
+      !historySource.includes('JSON.stringify(parsed.value.messages)'),
+    'history persistence should store ciphertext fields, not plaintext message JSON',
+  );
+  assert.ok(
+    migrateSource.includes('messages      JSONB NOT NULL') &&
+      migrateSource.includes('ciphertext  TEXT NOT NULL'),
+    'the schema should keep shared chats plaintext-only in the explicit share table and private chats encrypted in history',
+  );
+  assert.ok(
+    pageSource.includes('{messages.length > 0 && !streaming && (') &&
+      pageSource.includes('<button onClick={handleShare}>{shareLabel}</button>'),
+    'sharing should remain an explicit user action from an existing chat, not an automatic side effect',
+  );
+  assert.ok(
+    shareSource.includes('INSERT INTO shared_chats') &&
+      shareSource.includes('JSON.stringify(parsed.value.messages)'),
+    'the share route should be the explicit exception that stores a plaintext shared copy for a public URL',
+  );
+  assert.ok(
+    shareGetSource.includes("const SHARE_CACHE = 'public, max-age=300, stale-while-revalidate=3600';"),
+    'shared chat fetches may be publicly cacheable because sharing is the explicit privacy opt-out',
+  );
+});
+
+test('security defaults keep private routes uncached and the app shell locked down', () => {
+  const requestSource = readFileSync(join(import.meta.dirname, '../lib/request.ts'), 'utf8');
+  const nextConfigSource = readFileSync(join(import.meta.dirname, '../next.config.ts'), 'utf8');
+  const chatRouteSource = readFileSync(join(import.meta.dirname, '../app/api/chat/route.ts'), 'utf8');
+  const historySource = readFileSync(join(import.meta.dirname, '../app/api/history/route.ts'), 'utf8');
+  const shareCreateSource = readFileSync(join(import.meta.dirname, '../app/api/shares/route.ts'), 'utf8');
+
+  assert.ok(
+    requestSource.includes("export const PRIVATE_NO_STORE = 'private, no-store';"),
+    'private API helpers should centralize a strict no-store cache policy',
+  );
+  assert.ok(
+    chatRouteSource.includes("'Cache-Control': PRIVATE_NO_STORE") &&
+      historySource.includes('cacheControl: PRIVATE_NO_STORE') &&
+      shareCreateSource.includes('cacheControl: PRIVATE_NO_STORE'),
+    'chat, history, and share-creation responses should stay uncached because they handle private user data',
+  );
+  assert.ok(
+    nextConfigSource.includes('X-Content-Type-Options') &&
+      nextConfigSource.includes('nosniff') &&
+      nextConfigSource.includes('X-Frame-Options') &&
+      nextConfigSource.includes('DENY') &&
+      nextConfigSource.includes('Referrer-Policy') &&
+      nextConfigSource.includes('strict-origin-when-cross-origin') &&
+      nextConfigSource.includes('Permissions-Policy') &&
+      nextConfigSource.includes('camera=(), microphone=(), geolocation=()') &&
+      nextConfigSource.includes('Content-Security-Policy') &&
+      nextConfigSource.includes("default-src 'self'") &&
+      nextConfigSource.includes("frame-ancestors 'none'") &&
+      nextConfigSource.includes("object-src 'none'"),
+    'the app shell should keep its hardened security headers and restrictive CSP defaults',
+  );
+});
+
 // ── settings validation ────────────────────────────────────────────────────────
 
 test('validateSettingsRequest: validates and defaults girlMode', () => {
