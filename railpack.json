@@ -9,16 +9,7 @@
       "type": "shared"
     }
   },
-  "build": {
-    "install": {
-      "cmds": ["pnpm install --frozen-lockfile --prefer-offline"]
-    },
-    "cmds": [
-      "cp -r .next/static .next/standalone/.next/static",
-      "cp -r public .next/standalone/public"
-    ]
-  },
   "deploy": {
-    "startCmd": "node .next/standalone/server.js"
+    "startCmd": "pnpm start"
   }
 }

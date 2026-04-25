@@ -25,7 +25,6 @@ const securityHeaders = [
 ];
 
 const config: NextConfig = {
-  output: 'standalone',
   serverExternalPackages: ['pg', 'pino'],
   experimental: {
     optimizePackageImports: ['highlight.js'],

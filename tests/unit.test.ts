@@ -838,6 +838,10 @@ test('dependency footprint stays deliberately small and SDK-free while using dir
     'server-only packages should stay external so the app bundle remains lean',
   );
   assert.ok(
+    !nextConfigSource.includes("output: 'standalone'"),
+    'Next.js should use the normal build output instead of the unused standalone mode',
+  );
+  assert.ok(
     nextConfigSource.includes("optimizePackageImports: ['highlight.js']"),
     'highlight.js imports should stay optimized for faster client bundles',
   );
@@ -847,6 +851,13 @@ test('dependency footprint stays deliberately small and SDK-free while using dir
       chatRouteSource.includes("fetch('https://api.anthropic.com/v1/messages'") &&
       chatRouteSource.includes('https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse'),
     'provider calls should use the direct HTTP APIs instead of heavyweight SDKs',
+  );
+  const railpackConfig = readFileSync(join(import.meta.dirname, '../railpack.json'), 'utf8');
+  assert.ok(
+    railpackConfig.includes('"startCmd": "pnpm start"') &&
+      !railpackConfig.includes('.next/standalone') &&
+      !railpackConfig.includes('standalone/server.js'),
+    'Railpack should use the normal app start command and should not depend on standalone build artifacts',
   );
 });
 
