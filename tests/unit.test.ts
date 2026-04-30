@@ -212,6 +212,14 @@ test('splitMessageFollowups: strips the trailing followups block and returns fol
   assert.deepEqual(parsed.followups, ['First follow-up.', 'Second follow-up.']);
 });
 
+test('splitMessageFollowups: treats trailing bare followup tags like a followups wrapper', () => {
+  const parsed = splitMessageFollowups(
+    'Main answer.\n\n<followup>First follow-up.</followup>\n<followup>Second follow-up.</followup>',
+  );
+  assert.equal(parsed.content, 'Main answer.');
+  assert.deepEqual(parsed.followups, ['First follow-up.', 'Second follow-up.']);
+});
+
 test('splitMessageFollowups: ignores followups tags that are not at the end of the message', () => {
   const content = '<followups><followup>Example</followup></followups>\nStill part of the visible message.';
   const parsed = splitMessageFollowups(content);
