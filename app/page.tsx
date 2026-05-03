@@ -1361,7 +1361,7 @@ export default function Home() {
                   )}
                 </div>
                 <div className="message-body">
-                  <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
+                  {msg.role === 'user' && <span className="role">&gt;</span>}
                   <div className="content">
                     {msg.images && msg.images.length > 0 && (
                       <div className="message-images">
@@ -1405,7 +1405,6 @@ export default function Home() {
                   <span className="message-label">[OUTPUT]</span>
                 </div>
                 <div className="message-body">
-                  <span className="role">#</span>
                   {streamingContent
                     ? <RenderedMarkdown
                         html={streamingHtml || undefined}

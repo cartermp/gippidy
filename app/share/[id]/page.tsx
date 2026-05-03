@@ -82,7 +82,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
                 <span className="message-label">{msg.role === 'assistant' ? '[OUTPUT]' : '[INPUT]'}</span>
               </div>
               <div className="message-body">
-                <span className="role">{msg.role === 'user' ? '>' : '#'}</span>
+                {msg.role === 'user' && <span className="role">&gt;</span>}
                 <div className="content">
                   {msg.images && msg.images.length > 0 && (
                     <div className="message-images">

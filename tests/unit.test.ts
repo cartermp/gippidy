@@ -341,6 +341,24 @@ test('page source uses friendly client error formatting instead of raw String(er
   );
 });
 
+test('assistant messages do not render a leading role hash', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const sharePageSource = readFileSync(join(import.meta.dirname, '../app/share/[id]/page.tsx'), 'utf8');
+
+  assert.ok(
+    pageSource.includes(`{msg.role === 'user' && <span className="role">&gt;</span>}`),
+    'live chat should only render the role gutter for user messages',
+  );
+  assert.ok(
+    !pageSource.includes('<span className="role">#</span>'),
+    'live chat should not render a leading hash for assistant messages, including streaming output',
+  );
+  assert.ok(
+    sharePageSource.includes(`{msg.role === 'user' && <span className="role">&gt;</span>}`),
+    'shared chat should only render the role gutter for user messages',
+  );
+});
+
 test('followup UI wiring hides XML in assistant messages and submits the selected followup', () => {
   const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
   const renderedMarkdownSource = readFileSync(join(import.meta.dirname, '../app/rendered-markdown.tsx'), 'utf8');
