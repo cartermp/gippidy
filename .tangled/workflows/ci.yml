@@ -1,0 +1,33 @@
+when:
+  - event: ["push"]
+    branch: ["main"]
+  - event: ["pull_request"]
+
+engine: "nixery"
+
+clone:
+  depth: 1
+
+dependencies:
+  nixpkgs:
+    - bash
+    - git
+    - nodejs
+    - pnpm
+
+environment:
+  CI: "true"
+
+steps:
+  - name: "Versions"
+    command: |
+      node --version
+      pnpm --version
+
+  - name: "Install dependencies"
+    command: |
+      pnpm install --frozen-lockfile
+
+  - name: "Test"
+    command: |
+      pnpm test
