@@ -6,7 +6,6 @@ A minimal LLM chat app. Supports OpenAI, Anthropic, and Google Gemini models wit
 
 - Node.js 20.6+
 - pnpm
-- A Vercel account (for deployment)
 - A Neon Postgres database
 - Google OAuth credentials
 - API keys for whichever models you want to use
@@ -37,9 +36,6 @@ GOOGLE_GENERATIVE_AI_API_KEY=AIza...
 
 # Optional: set to debug, info, warn, or error (default: info)
 LOG_LEVEL=info
-
-# Base URL for OG image metadata (defaults to https://www.gippidy.chat)
-NEXT_PUBLIC_BASE_URL=https://your-domain.vercel.app
 ```
 
 ## Google OAuth setup
@@ -48,7 +44,7 @@ NEXT_PUBLIC_BASE_URL=https://your-domain.vercel.app
 2. Create an OAuth 2.0 Client ID (Web application)
 3. Add authorized redirect URIs:
    - `http://localhost:3000/api/auth/callback/google` (local dev)
-   - `https://your-domain.vercel.app/api/auth/callback/google` (production)
+   - `https://your-domain/api/auth/callback/google` (production)
 4. Copy the Client ID and Secret into `GOOGLE_ID` and `GOOGLE_SECRET`
 
 ## Local setup
