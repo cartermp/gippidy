@@ -57,19 +57,9 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## Deploying to Vercel
-
-```bash
-vercel deploy
-```
-
-Add all variables from `.env.local` to your Vercel project (Settings → Environment Variables). If you use Vercel's Neon integration, `DATABASE_URL` will be set automatically.
-
-Add your production Vercel URL to the authorized redirect URIs in Google Cloud Console.
-
 ## Features
 
-- **Multiple models** — GPT-5.4, Claude Opus 4.6, Claude Sonnet 4.6, Gemini 3.1 Pro, Gemini 3 Flash
+- **Multiple models**
 - **Streaming responses** with smart scroll (auto-follows stream unless you scroll up)
 - **Markdown + syntax highlighting** via marked and highlight.js
 - **Image inputs** — attach via file picker, paste from clipboard, or drag and drop
