@@ -1,6 +1,6 @@
 # gippidy
 
-A minimal LLM chat app. Supports OpenAI, Anthropic, and Google Gemini models with streaming responses, markdown rendering, image and PDF inputs, web search, encrypted chat history, and shareable chat sessions. Hosted on Vercel.
+A minimal LLM chat app. Supports OpenAI, Anthropic, and Google Gemini models with streaming responses, markdown rendering, image and PDF inputs, web search, encrypted chat history, and shareable chat sessions.
 
 ## Prerequisites
 
