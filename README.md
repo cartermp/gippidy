@@ -1,6 +1,6 @@
 # gippidy
 
-A minimal LLM chat app for my own uses.
+A minimal LLM chat app for my own uses. Good stuff.
 
 ## Prerequisites
 
