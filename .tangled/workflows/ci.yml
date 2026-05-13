@@ -11,18 +11,28 @@ clone:
 dependencies:
   nixpkgs:
     - bash
+    - coreutils
+    - curl
     - git
+    - gnugrep
+    - gnused
+    - gzip
+    - gnutar
     - nodejs
     - pnpm
 
 environment:
   CI: "true"
 
+secrets:
+  - RAILWAY_TOKEN
+
 steps:
   - name: "Versions"
     command: |
       node --version
       pnpm --version
+      sed --version | head -1
 
   - name: "Install dependencies"
     command: |
@@ -31,3 +41,20 @@ steps:
   - name: "Test"
     command: |
       pnpm test
+
+  - name: "Install Railway CLI"
+    when:
+      - event: ["push"]
+        branch: ["main"]
+    command: |
+      curl -fsSL https://railway.com/install.sh | sh
+      export PATH="$HOME/.railway/bin:$PATH"
+      railway --version
+
+  - name: "Deploy to Railway"
+    when:
+      - event: ["push"]
+        branch: ["main"]
+    command: |
+      export PATH="$HOME/.railway/bin:$PATH"
+      railway up --ci --service gippidy
