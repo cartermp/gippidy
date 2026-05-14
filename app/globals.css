@@ -4,6 +4,7 @@
   --bg: #0c0c0c;
   --body-bg: var(--bg);
   --fg: #c8c8c8;
+  --app-font-family: 'Courier New', Courier, monospace;
   --assistant-fg: #e0e0e0;
   --green: #33ff33;
   --blue: #5599ff;
@@ -83,7 +84,7 @@ body {
   isolation: isolate;
   background: var(--body-bg);
   color: var(--fg);
-  font-family: 'Courier New', Courier, monospace;
+  font-family: var(--app-font-family);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -157,6 +158,8 @@ header {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
+  position: relative;
+  z-index: 3;
 }
 
 .logo {
@@ -269,6 +272,8 @@ header select option {
   gap: 8px;
   flex-shrink: 0;
   box-shadow: var(--panel-shadow);
+  position: relative;
+  z-index: 2;
 }
 
 .settings-row {
@@ -412,6 +417,7 @@ header select option {
   flex: 1;
   position: relative;
   min-height: 0;
+  z-index: 1;
 }
 
 .messages {
@@ -691,6 +697,8 @@ header select option {
   flex-shrink: 0;
   gap: 8px;
   box-shadow: inset 0 1px 0 var(--accent-glow-soft);
+  position: relative;
+  z-index: 2;
 }
 
 .pending-attachments {
@@ -921,7 +929,7 @@ header select option {
   background: var(--code-bg);
   color: var(--assistant-fg);
   padding: 1px 5px;
-  font-family: 'Courier New', monospace;
+  font-family: var(--app-font-family);
   font-size: 0.9em;
   border: 1px solid var(--code-border);
 }

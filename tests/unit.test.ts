@@ -988,17 +988,36 @@ test('security defaults keep private routes uncached and the app shell locked do
       nextConfigSource.includes('strict-origin-when-cross-origin') &&
       nextConfigSource.includes('Permissions-Policy') &&
       nextConfigSource.includes('camera=(), microphone=(), geolocation=()') &&
+      nextConfigSource.includes("process.env.NODE_ENV === 'production'") &&
+      nextConfigSource.includes('Strict-Transport-Security') &&
       nextConfigSource.includes('Content-Security-Policy') &&
       nextConfigSource.includes("default-src 'self'") &&
       nextConfigSource.includes("frame-ancestors 'none'") &&
       nextConfigSource.includes("object-src 'none'"),
-    'the app shell should keep its hardened security headers and restrictive CSP defaults',
+    'the app shell should keep its hardened security headers and restrictive CSP defaults while limiting HSTS to production',
+  );
+});
+
+test('header and settings stay above the scroll area so top controls remain clickable', () => {
+  const cssSource = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+  assert.ok(
+    cssSource.includes(`header {
+  display: flex;`) &&
+      cssSource.includes('z-index: 3;'),
+    'the header should have an explicit stacking order above the rest of the app shell',
+  );
+  assert.ok(
+    cssSource.includes(`.settings {
+  background: var(--surface);`) &&
+      cssSource.includes('.messages-wrapper {') &&
+      cssSource.includes('.input-area {'),
+    'the settings, message scroller, and input area should keep an intentional layering order',
   );
 });
 
 // ── settings validation ────────────────────────────────────────────────────────
 
-test('validateSettingsRequest: validates and defaults girlMode', () => {
+test('validateSettingsRequest: validates and defaults girlMode and font', () => {
   const source = readFileSync(join(import.meta.dirname, '../lib/validation.ts'), 'utf8');
   assert.ok(
     source.includes("if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');"),
@@ -1007,6 +1026,15 @@ test('validateSettingsRequest: validates and defaults girlMode', () => {
   assert.ok(
     source.includes('girlMode: input.girlMode ?? false,'),
     'validateSettingsRequest should persist girlMode and default it to false',
+  );
+  assert.ok(
+    source.includes("if (input.font !== undefined && typeof input.font !== 'string') return fail('invalid font');") &&
+      source.includes("if (typeof input.font === 'string' && !isFontId(input.font)) return fail('invalid font');"),
+    'validateSettingsRequest should reject font values outside the allowed built-in list',
+  );
+  assert.ok(
+    source.includes("font: typeof input.font === 'string' ? input.font : DEFAULT_FONT_ID,"),
+    'validateSettingsRequest should default the saved font to the app default when none is supplied',
   );
 });
 
@@ -1023,6 +1051,14 @@ test('settings persistence preserves untouched fields and tolerates older schema
   assert.ok(
     source.includes('girl_mode     = COALESCE($5, user_settings.girl_mode)'),
     'settings PUT should preserve the existing girl_mode value when that field was not sent',
+  );
+  assert.ok(
+    source.includes('font_family   = COALESCE($6, user_settings.font_family)'),
+    'settings PUT should preserve the existing font_family value when that field was not sent',
+  );
+  assert.ok(
+    source.includes('SELECT system_prompt, save_history, key_jwk, girl_mode FROM user_settings WHERE email = $1'),
+    'settings GET should fall back cleanly when the font column has not been migrated yet',
   );
   assert.ok(
     source.includes('SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1'),
@@ -1045,12 +1081,53 @@ test('page source merges local settings changes before initial settings hydrate 
     'page should keep a local girlMode toggle instead of overwriting it with stale server data',
   );
   assert.ok(
+    source.includes("const nextFont = pending.font ?? (isFontId(fo) ? fo : fontRef.current);"),
+    'page should keep a local font choice instead of overwriting it with stale server data',
+  );
+  assert.ok(
     source.includes('pendingPersistRef.current = { ...pendingPersistRef.current, ...overrides };'),
     'page should merge back-to-back settings changes before sending them',
   );
   assert.ok(
     source.includes('const body = JSON.stringify(patch);'),
     'page should send only the accumulated settings fields that actually changed',
+  );
+});
+
+test('font settings let users pick and save alternate terminal fonts', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const cssSource = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+  const fontsSource = readFileSync(join(import.meta.dirname, '../lib/fonts.ts'), 'utf8');
+  const migrateSource = readFileSync(join(import.meta.dirname, '../scripts/migrate.mjs'), 'utf8');
+  assert.ok(
+    fontsSource.includes("label: 'Courier New'") &&
+      fontsSource.includes("label: 'Menlo'") &&
+      fontsSource.includes("label: 'Consolas'") &&
+      fontsSource.includes("label: 'Monaco'"),
+    'the app should expose a small built-in list of terminal-style font options',
+  );
+  assert.ok(
+    pageSource.includes("const FONT_KEY     = 'gippidy-font';") &&
+      pageSource.includes("const [font, setFont]                         = useState<FontId>(DEFAULT_FONT_ID);") &&
+      pageSource.includes("const savedFont = localStorage.getItem(FONT_KEY);") &&
+      pageSource.includes("if (savedFont && isFontId(savedFont)) applyFont(savedFont);"),
+    'page should restore the saved font choice from localStorage during startup',
+  );
+  assert.ok(
+    pageSource.includes("logClientEvent('settings.invalid_font', 'warn'") &&
+      pageSource.includes("persistSettings({ font: nextFont }, true);") &&
+      pageSource.includes('<label>Font</label>'),
+    'settings should let the user choose a font and persist it immediately',
+  );
+  assert.ok(
+    cssSource.includes('--app-font-family:') &&
+      cssSource.includes('font-family: var(--app-font-family);'),
+    'globals.css should route app text through a CSS variable so the selected font applies everywhere',
+  );
+  assert.ok(
+    migrateSource.includes("font_family   TEXT NOT NULL DEFAULT 'courier-new'") &&
+      migrateSource.includes("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS font_family TEXT NOT NULL DEFAULT 'courier-new'"),
+    'database migrations should persist the selected font in user_settings',
   );
 });
 

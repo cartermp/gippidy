@@ -5,6 +5,7 @@ import { signOut } from 'next-auth/react';
 import RenderedMarkdown from './rendered-markdown';
 import { renderMarkdown } from '@/lib/markdown';
 import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
+import { DEFAULT_FONT_ID, FONTS, getFontFamily, isFontId, type FontId } from '@/lib/fonts';
 import { MODELS } from '@/lib/models';
 import { splitMessageFollowups, type Role, type Image, type Pdf, type Message } from '@/lib/chat';
 import { LIMITS } from '@/lib/validation';
@@ -14,6 +15,7 @@ type PendingPdf  = Pdf;
 
 const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
+const FONT_KEY     = 'gippidy-font';
 const GIRL_MODE_KEY = 'gippidy-girl-mode';
 const ACTIVE_HISTORY_CHAT_KEY = 'gippidy-active-history-chat';
 const HISTORY_PREVIEW_CACHE_KEY = 'gippidy-history-preview-cache';
@@ -50,7 +52,7 @@ type HistoryRestoreResult =
   | { kind: 'ok'; item: HistoryItem }
   | { kind: 'missing' }
   | { kind: 'error' };
-type SettingsPatch = { systemPrompt?: string; saveHistory?: boolean; girlMode?: boolean; keyJwk?: string | null };
+type SettingsPatch = { systemPrompt?: string; saveHistory?: boolean; girlMode?: boolean; font?: FontId; keyJwk?: string | null };
 type PendingSettings = Omit<SettingsPatch, 'keyJwk'>;
 
 function withRenderedHtml(message: Message): Message {
@@ -124,6 +126,10 @@ function writeHistoryPreviewCache(cache: HistoryPreviewCache) {
 function setGirlModeDom(enabled: boolean) {
   if (enabled) document.documentElement.setAttribute(GIRL_MODE_ATTR, 'true');
   else document.documentElement.removeAttribute(GIRL_MODE_ATTR);
+}
+
+function setFontDom(font: FontId) {
+  document.documentElement.style.setProperty('--app-font-family', getFontFamily(font));
 }
 
 function isBuiltInDefaultSystemPrompt(prompt: string): boolean {
@@ -243,6 +249,7 @@ export default function Home() {
   const webSearchPhaseRef = useRef<'off' | 'searching' | 'generating'>('off');
   const [saveHistory, setSaveHistory]           = useState(false);
   const [girlMode, setGirlMode]                 = useState(false);
+  const [font, setFont]                         = useState<FontId>(DEFAULT_FONT_ID);
   const [showHistory, setShowHistory]           = useState(false);
   const [historyItems, setHistoryItems]         = useState<HistoryPreview[]>([]);
   const [historyLoading, setHistoryLoading]     = useState(false);
@@ -281,6 +288,7 @@ export default function Home() {
   const systemPromptRef = useRef(systemPrompt);
   const saveHistoryRef  = useRef(saveHistory);
   const girlModeRef     = useRef(girlMode);
+  const fontRef         = useRef(font);
   const chatStateVersionRef = useRef(0);
   const initialSettingsLoadedRef = useRef(false);
   const pendingSettingsRef = useRef<PendingSettings>({});
@@ -297,6 +305,10 @@ export default function Home() {
   useEffect(() => {
     girlModeRef.current = girlMode;
   }, [girlMode]);
+
+  useEffect(() => {
+    fontRef.current = font;
+  }, [font]);
 
   useEffect(() => () => {
     if (saveSettingsTimer.current) clearTimeout(saveSettingsTimer.current);
@@ -365,6 +377,13 @@ export default function Home() {
     setGirlMode(enabled);
     localStorage.setItem(GIRL_MODE_KEY, enabled ? '1' : '0');
     setGirlModeDom(enabled);
+  };
+
+  const applyFont = (nextFont: FontId) => {
+    fontRef.current = nextFont;
+    setFont(nextFont);
+    localStorage.setItem(FONT_KEY, nextFont);
+    setFontDom(nextFont);
   };
 
   const rememberActiveHistoryChat = (id: string | null) => {
@@ -591,6 +610,8 @@ export default function Home() {
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
     if (saved) setModel(saved);
+    const savedFont = localStorage.getItem(FONT_KEY);
+    if (savedFont && isFontId(savedFont)) applyFont(savedFont);
     const savedGirlMode = localStorage.getItem(GIRL_MODE_KEY);
     const activeHistoryChatId = localStorage.getItem(ACTIVE_HISTORY_CHAT_KEY);
     if (savedGirlMode === '1' || savedGirlMode === '0') {
@@ -630,10 +651,11 @@ export default function Home() {
         if (!r.ok) throw new Error(`settings_get_${r.status}`);
         return r.json();
       })
-      .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, keyJwk }) => {
+      .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, font: fo, keyJwk }) => {
         const pending = pendingSettingsRef.current;
         const nextSaveHistory = pending.saveHistory ?? Boolean(sh);
         const nextGirlMode = pending.girlMode ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);
+        const nextFont = pending.font ?? (isFontId(fo) ? fo : fontRef.current);
         const rawSystemPrompt = pending.systemPrompt ?? (systemPrompt ?? '');
         const nextSystemPrompt = resolveDefaultSystemPrompt(rawSystemPrompt, nextGirlMode);
 
@@ -645,6 +667,7 @@ export default function Home() {
         saveHistoryRef.current = nextSaveHistory;
         setSaveHistory(nextSaveHistory);
         applyGirlMode(nextGirlMode);
+        applyFont(nextFont);
         // Load or create the encryption key (shared across all deployments via DB)
         const { key, jwk } = await getOrCreateKey(keyJwk ?? null);
         cryptoKeyRef.current = key;
@@ -755,6 +778,16 @@ export default function Home() {
     setSystemPrompt(s);
     rememberPendingSettings({ systemPrompt: s });
     persistSettings({ systemPrompt: s });
+  };
+
+  const handleFontChange = (nextFont: string) => {
+    if (!isFontId(nextFont)) {
+      logClientEvent('settings.invalid_font', 'warn', { font: nextFont });
+      return;
+    }
+    applyFont(nextFont);
+    rememberPendingSettings({ font: nextFont });
+    persistSettings({ font: nextFont }, true);
   };
 
   const handleToggleSaveHistory = (val: boolean) => {
@@ -1255,6 +1288,14 @@ export default function Home() {
             <select value={model} onChange={e => handleModelChange(e.target.value)}>
               {MODELS.map(m => (
                 <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="settings-row">
+            <label>Font</label>
+            <select value={font} onChange={e => handleFontChange(e.target.value)}>
+              {FONTS.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
               ))}
             </select>
           </div>

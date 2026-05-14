@@ -20,7 +20,8 @@ await pool.query(`
     system_prompt TEXT NOT NULL DEFAULT '',
     save_history  BOOLEAN NOT NULL DEFAULT FALSE,
     key_jwk       TEXT,
-    girl_mode     BOOLEAN NOT NULL DEFAULT FALSE
+    girl_mode     BOOLEAN NOT NULL DEFAULT FALSE,
+    font_family   TEXT NOT NULL DEFAULT 'courier-new'
   )
 `);
 await pool.query(`
@@ -31,6 +32,9 @@ await pool.query(`
 `);
 await pool.query(`
   ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS girl_mode BOOLEAN NOT NULL DEFAULT FALSE
+`);
+await pool.query(`
+  ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS font_family TEXT NOT NULL DEFAULT 'courier-new'
 `);
 console.log('✓ user_settings table ready');
 

@@ -1,4 +1,5 @@
 import type { Image, Message, Pdf, Role } from './chat';
+import { DEFAULT_FONT_ID, isFontId, type FontId } from './fonts';
 import { ALLOWED_MODELS } from './models';
 
 type ValidationResult<T> =
@@ -161,6 +162,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
   systemPrompt: string;
   saveHistory: boolean;
   girlMode: boolean;
+  font: FontId;
   keyJwk: string | null;
 }> {
   if (!isPlainObject(input)) return fail('invalid request body');
@@ -170,6 +172,8 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
   }
   if (input.saveHistory !== undefined && typeof input.saveHistory !== 'boolean') return fail('invalid saveHistory');
   if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');
+  if (input.font !== undefined && typeof input.font !== 'string') return fail('invalid font');
+  if (typeof input.font === 'string' && !isFontId(input.font)) return fail('invalid font');
   if (input.keyJwk !== undefined && input.keyJwk !== null && typeof input.keyJwk !== 'string') return fail('invalid keyJwk');
   if (typeof input.keyJwk === 'string') {
     if (input.keyJwk.length > LIMITS.maxJwkChars) return fail('keyJwk too large', 413);
@@ -185,6 +189,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
     systemPrompt: typeof input.systemPrompt === 'string' ? input.systemPrompt : '',
     saveHistory: input.saveHistory ?? false,
     girlMode: input.girlMode ?? false,
+    font: typeof input.font === 'string' ? input.font : DEFAULT_FONT_ID,
     keyJwk: typeof input.keyJwk === 'string' ? input.keyJwk : null,
   });
 }
