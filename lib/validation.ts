@@ -142,6 +142,7 @@ export function validateShareRequest(input: unknown): ValidationResult<{
   messages: CleanMessage[];
   model: string;
   systemPrompt: string;
+  girlMode: boolean;
 }> {
   if (!isPlainObject(input)) return fail('invalid request body');
   const messages = validateMessages(input.messages);
@@ -151,10 +152,12 @@ export function validateShareRequest(input: unknown): ValidationResult<{
   if (typeof input.systemPrompt === 'string' && input.systemPrompt.length > LIMITS.maxSystemPromptChars) {
     return fail('systemPrompt too large', 413);
   }
+  if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');
   return ok({
     messages: messages.value,
     model: input.model,
     systemPrompt: typeof input.systemPrompt === 'string' ? input.systemPrompt : '',
+    girlMode: input.girlMode ?? false,
   });
 }
 

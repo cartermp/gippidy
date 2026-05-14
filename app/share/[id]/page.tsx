@@ -51,55 +51,62 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
   });
 
   return (
-    <div className="app share-view">
-      <header>
-        <span className="logo">GIPPIDY</span>
-        <span className="share-meta">{share.model} · {date}</span>
-        <div className="header-spacer" />
-        <div className="header-actions">
-          {sessionResult && <Link href="/" className="header-link">[BACK]</Link>}
-          {sessionResult
-            ? <ForkButton messages={messages} model={share.model} systemPrompt={share.system_prompt ?? undefined} />
-            : googleAuthConfigured
-              ? <form action={async () => {
-                  'use server';
-                  await signIn('google', { redirectTo: `/share/${id}` });
-                }}>
-                  <button type="submit">[SIGN IN TO CONTINUE]</button>
-                </form>
-              : <span className="share-meta">sign-in unavailable</span>
-          }
-        </div>
-      </header>
+    <div className="share-page-shell" data-girl-mode={share.girl_mode ? 'true' : 'false'}>
+      <div className="app share-view">
+        <header>
+          <span className="logo">GIPPIDY</span>
+          <span className="share-meta">{share.model} · {date}</span>
+          <div className="header-spacer" />
+          <div className="header-actions">
+            {sessionResult && <Link href="/" className="header-link">[BACK]</Link>}
+            {sessionResult
+              ? <ForkButton
+                  messages={messages}
+                  model={share.model}
+                  systemPrompt={share.system_prompt ?? undefined}
+                  girlMode={share.girl_mode}
+                />
+              : googleAuthConfigured
+                ? <form action={async () => {
+                    'use server';
+                    await signIn('google', { redirectTo: `/share/${id}` });
+                  }}>
+                    <button type="submit">[SIGN IN TO CONTINUE]</button>
+                  </form>
+                : <span className="share-meta">sign-in unavailable</span>
+            }
+          </div>
+        </header>
 
-      <div className="share-banner">[ read-only · shared chat ]</div>
+        <div className="share-banner">[ read-only · shared chat ]</div>
 
-      <div className="messages">
-        {messages.map((msg, i) => (
-          <div key={i} className={`message ${msg.role}`}>
-            <div className="message-shell">
-              <div className="message-head">
-                <span className="message-label">{msg.role === 'assistant' ? '[OUTPUT]' : '[INPUT]'}</span>
-              </div>
-              <div className="message-body">
-                {msg.role === 'user' && <span className="role">&gt;</span>}
-                <div className="content">
-                  {msg.images && msg.images.length > 0 && (
-                    <div className="message-images">
-                      {msg.images.map((img, j) => (
-                        <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
-                      ))}
-                    </div>
-                  )}
-                  {msg.role === 'assistant'
-                    ? <RenderedMarkdown text={msg.content} followupsEnabled />
-                    : msg.content && <RenderedMarkdown text={msg.content} />
-                  }
+        <div className="messages">
+          {messages.map((msg, i) => (
+            <div key={i} className={`message ${msg.role}`}>
+              <div className="message-shell">
+                <div className="message-head">
+                  <span className="message-label">{msg.role === 'assistant' ? '[OUTPUT]' : '[INPUT]'}</span>
+                </div>
+                <div className="message-body">
+                  {msg.role === 'user' && <span className="role">&gt;</span>}
+                  <div className="content">
+                    {msg.images && msg.images.length > 0 && (
+                      <div className="message-images">
+                        {msg.images.map((img, j) => (
+                          <img key={j} src={`data:${img.mimeType};base64,${img.data}`} alt="" className="message-image" />
+                        ))}
+                      </div>
+                    )}
+                    {msg.role === 'assistant'
+                      ? <RenderedMarkdown text={msg.content} followupsEnabled />
+                      : msg.content && <RenderedMarkdown text={msg.content} />
+                    }
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

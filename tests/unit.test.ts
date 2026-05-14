@@ -1084,8 +1084,8 @@ test('page source merges local settings changes before initial settings hydrate 
     'page should keep a local saveHistory toggle instead of overwriting it with stale server data',
   );
   assert.ok(
-    source.includes("const nextGirlMode = pending.girlMode ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);"),
-    'page should keep a local girlMode toggle instead of overwriting it with stale server data',
+    source.includes("const nextGirlMode = pending.girlMode ?? forkGirlModeOverrideRef.current ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);"),
+    'page should keep a local girlMode toggle or fork override instead of overwriting it with stale server data',
   );
   assert.ok(
     source.includes("const nextFont = pending.font ?? (isFontId(fo) ? fo : fontRef.current);"),
@@ -1192,6 +1192,62 @@ test('Girl Mode defaults the system prompt to the chatty bestie preset', () => {
   assert.ok(
     source.includes('IF AND ONLY IF you suggest follow-up topics for conversation'),
     'the default system prompts should instruct the model to emit followups XML only when suggesting follow-up topics',
+  );
+});
+
+test('shared chats preserve girl mode for viewing and fork restore', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const sharePageSource = readFileSync(join(import.meta.dirname, '../app/share/[id]/page.tsx'), 'utf8');
+  const forkButtonSource = readFileSync(join(import.meta.dirname, '../app/share/[id]/fork-button.tsx'), 'utf8');
+  const shareRouteSource = readFileSync(join(import.meta.dirname, '../app/api/shares/route.ts'), 'utf8');
+  const validationSource = readFileSync(join(import.meta.dirname, '../lib/validation.ts'), 'utf8');
+  const shareLibSource = readFileSync(join(import.meta.dirname, '../lib/share.ts'), 'utf8');
+  const migrateSource = readFileSync(join(import.meta.dirname, '../scripts/migrate.mjs'), 'utf8');
+  const cssSource = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+
+  assert.ok(
+    pageSource.includes("body: JSON.stringify({ messages: stripMessageHtml(messages), model, systemPrompt, girlMode }),"),
+    'share creation should include the current Girl Mode toggle in the shared payload',
+  );
+  assert.ok(
+    pageSource.includes("const { messages: m, model: mo, systemPrompt: sp, girlMode: gm } = JSON.parse(fork);") &&
+      pageSource.includes('forkGirlModeOverrideRef.current = gm;') &&
+      pageSource.includes('applyGirlModeState(gm, false);') &&
+      pageSource.includes("const nextGirlMode = pending.girlMode ?? forkGirlModeOverrideRef.current ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);"),
+    'fork restore should temporarily respect the shared Girl Mode instead of overwriting it with the viewer settings',
+  );
+  assert.ok(
+    sharePageSource.includes(`data-girl-mode={share.girl_mode ? 'true' : 'false'}`) &&
+      sharePageSource.includes('girlMode={share.girl_mode}'),
+    'the public share page and continue button should use the shared Girl Mode state',
+  );
+  assert.ok(
+    forkButtonSource.includes('JSON.stringify({ messages, model, systemPrompt, girlMode })'),
+    'forked shared chats should carry Girl Mode through localStorage restore',
+  );
+  assert.ok(
+    validationSource.includes("if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');") &&
+      validationSource.includes('girlMode: input.girlMode ?? false,'),
+    'share validation should accept and default the optional Girl Mode field',
+  );
+  assert.ok(
+    shareRouteSource.includes('INSERT INTO shared_chats (id, created_by, model, system_prompt, girl_mode, messages)') &&
+      shareRouteSource.includes('parsed.value.girlMode'),
+    'shared chat persistence should store Girl Mode alongside the plaintext share',
+  );
+  assert.ok(
+    shareLibSource.includes('girl_mode: boolean;') &&
+      shareLibSource.includes('SELECT id, model, system_prompt, girl_mode, messages, created_at FROM shared_chats WHERE id = $1'),
+    'shared chat reads should return the persisted Girl Mode field',
+  );
+  assert.ok(
+    migrateSource.includes('girl_mode     BOOLEAN NOT NULL DEFAULT FALSE') &&
+      migrateSource.includes('ALTER TABLE shared_chats ADD COLUMN IF NOT EXISTS girl_mode BOOLEAN NOT NULL DEFAULT FALSE'),
+    'database migrations should add Girl Mode to the shared chat schema',
+  );
+  assert.ok(
+    cssSource.includes('.share-page-shell[data-girl-mode=\'true\']'),
+    'shared chats should have a route-local Girl Mode theme that does not depend on the viewer settings',
   );
 });
 
@@ -1446,10 +1502,12 @@ test('input-prompt uses padding-top (not padding-bottom) to align with top of te
   assert.ok(!rule.includes('padding-bottom'), '.input-prompt must not use padding-bottom');
 });
 
-test('globals.css defines a girl mode theme with sparkles', () => {
+test('globals.css defines a girl mode theme with sparkles and rounded corners', () => {
   const css = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
   assert.ok(css.includes(":root[data-girl-mode='true']"), 'girl mode theme selector missing');
   assert.ok(css.includes('--sparkle-opacity'), 'girl mode sparkle variables missing');
+  assert.ok(css.includes('--radius-sm: 6px;'), 'girl mode rounded corner variables missing');
+  assert.ok(css.includes('border-radius: var(--radius-md);'), 'theme-driven rounded corners missing from panels');
 });
 
 test('settings toggle checkboxes are excluded from generic settings input styling', () => {

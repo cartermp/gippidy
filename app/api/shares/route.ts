@@ -75,10 +75,17 @@ export async function POST(req: NextRequest) {
       ctx.insertAttempts = attempt + 1;
       id = crypto.randomUUID().replace(/-/g, '');
       const result = await query(
-        `INSERT INTO shared_chats (id, created_by, model, system_prompt, messages)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO shared_chats (id, created_by, model, system_prompt, girl_mode, messages)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT DO NOTHING`,
-        [id, session.user.email, parsed.value.model, parsed.value.systemPrompt || null, JSON.stringify(parsed.value.messages)],
+        [
+          id,
+          session.user.email,
+          parsed.value.model,
+          parsed.value.systemPrompt || null,
+          parsed.value.girlMode,
+          JSON.stringify(parsed.value.messages),
+        ],
       );
       if ((result.rowCount ?? 0) > 0) break;
       id = '';

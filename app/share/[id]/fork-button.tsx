@@ -4,15 +4,16 @@ import { useRouter } from 'next/navigation';
 
 type Message = { role: string; content: string; images?: unknown[] };
 
-export default function ForkButton({ messages, model, systemPrompt }: {
+export default function ForkButton({ messages, model, systemPrompt, girlMode }: {
   messages: Message[];
   model: string;
   systemPrompt?: string;
+  girlMode: boolean;
 }) {
   const router = useRouter();
 
   const handleFork = () => {
-    localStorage.setItem('gippidy-fork', JSON.stringify({ messages, model, systemPrompt }));
+    localStorage.setItem('gippidy-fork', JSON.stringify({ messages, model, systemPrompt, girlMode }));
     router.push('/');
   };
 

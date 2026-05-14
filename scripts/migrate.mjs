@@ -9,8 +9,12 @@ await pool.query(`
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     model         TEXT NOT NULL,
     system_prompt TEXT,
+    girl_mode     BOOLEAN NOT NULL DEFAULT FALSE,
     messages      JSONB NOT NULL
   )
+`);
+await pool.query(`
+  ALTER TABLE shared_chats ADD COLUMN IF NOT EXISTS girl_mode BOOLEAN NOT NULL DEFAULT FALSE
 `);
 console.log('✓ shared_chats table ready');
 

@@ -296,6 +296,7 @@ export default function Home() {
   const initialSettingsLoadedRef = useRef(false);
   const pendingSettingsRef = useRef<PendingSettings>({});
   const pendingStartupHistoryRestoreRef = useRef<string | null>(null);
+  const forkGirlModeOverrideRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     systemPromptRef.current = systemPrompt;
@@ -376,9 +377,13 @@ export default function Home() {
   };
 
   const applyGirlMode = (enabled: boolean) => {
+    applyGirlModeState(enabled, true);
+  };
+
+  const applyGirlModeState = (enabled: boolean, persistLocal: boolean) => {
     girlModeRef.current = enabled;
     setGirlMode(enabled);
-    localStorage.setItem(GIRL_MODE_KEY, enabled ? '1' : '0');
+    if (persistLocal) localStorage.setItem(GIRL_MODE_KEY, enabled ? '1' : '0');
     setGirlModeDom(enabled);
   };
 
@@ -645,12 +650,16 @@ export default function Home() {
     let restoredFork = false;
     if (fork) {
       try {
-        const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
+        const { messages: m, model: mo, systemPrompt: sp, girlMode: gm } = JSON.parse(fork);
         chatStateVersionRef.current += 1;
         setMessages(withRenderedMessages(m));
         applyModel(mo, 'fork');
         systemPromptRef.current = sp ?? '';
         setSystemPrompt(sp ?? '');
+        if (typeof gm === 'boolean') {
+          forkGirlModeOverrideRef.current = gm;
+          applyGirlModeState(gm, false);
+        }
         chatIdRef.current = null; // fork always starts a new history entry
         rememberActiveHistoryChat(null);
         restoredFork = true;
@@ -669,13 +678,14 @@ export default function Home() {
       .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, font: fo, keyJwk }) => {
         const pending = pendingSettingsRef.current;
         const nextSaveHistory = pending.saveHistory ?? Boolean(sh);
-        const nextGirlMode = pending.girlMode ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);
+        const nextGirlMode = pending.girlMode ?? forkGirlModeOverrideRef.current ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);
         const nextFont = pending.font ?? (isFontId(fo) ? fo : fontRef.current);
         const rawSystemPrompt = pending.systemPrompt ?? (systemPrompt ?? '');
         const nextSystemPrompt = resolveDefaultSystemPrompt(rawSystemPrompt, nextGirlMode);
 
         initialSettingsLoadedRef.current = true;
         pendingSettingsRef.current = {};
+        forkGirlModeOverrideRef.current = null;
 
         systemPromptRef.current = nextSystemPrompt;
         setSystemPrompt(nextSystemPrompt);
@@ -761,7 +771,7 @@ export default function Home() {
       const res = await fetch('/api/shares', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: stripMessageHtml(messages), model, systemPrompt }),
+        body: JSON.stringify({ messages: stripMessageHtml(messages), model, systemPrompt, girlMode }),
       });
       if (!res.ok) {
         const { error } = await res.json();
