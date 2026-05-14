@@ -22,6 +22,9 @@ function parseStreamError(status: number, body: string): string {
     b.includes('tokens exceed') ||
     b.includes('reduce your prompt')
   ) return "[TOO LONG] Conversation exceeds this model's context limit. Use [CLEAR] to start fresh.";
+  if (b.includes('unknown model')) {
+    return '[MODEL ERROR] This chat is set to a model that is no longer available. Choose another model in [SETTINGS] and try again.';
+  }
   if (status === 400) return '[REQUEST ERROR] That request could not be processed. Try shortening it or starting a new chat.';
   if (status === 404 || status === 405) return '[APP ERROR] The chat service is unavailable right now. Refresh and try again.';
   if (status >= 500) return `[SERVER ERROR] The model returned an error (${status}). Try again.`;
@@ -314,6 +317,10 @@ test('parseStreamError: 413 → too large message', () => {
 
 test('parseStreamError: generic 400 → request error message', () => {
   assert.ok(parseStreamError(400, 'bad request').includes('REQUEST ERROR'));
+});
+
+test('parseStreamError: unknown model → model error message', () => {
+  assert.ok(parseStreamError(400, 'unknown model').includes('MODEL ERROR'));
 });
 
 test('parseClientError: network failures become friendly network errors', () => {
@@ -789,7 +796,7 @@ test('chat request validation keeps multimodal input and opt-in web search simpl
     'chat validation should keep web search opt-in, type-checked, and defaulted off',
   );
   assert.ok(
-    validationSource.includes("if (typeof input.model !== 'string' || !ALLOWED_MODELS.has(input.model)) return fail('unknown model');"),
+    validationSource.includes("if (typeof input.model !== 'string' || !isModelId(input.model)) return fail('unknown model');"),
     'chat validation should only allow the configured model list so the UI and API stay aligned',
   );
 });
@@ -1091,6 +1098,27 @@ test('page source merges local settings changes before initial settings hydrate 
   assert.ok(
     source.includes('const body = JSON.stringify(patch);'),
     'page should send only the accumulated settings fields that actually changed',
+  );
+});
+
+test('page source normalizes stale saved, restored, and forked model ids to a supported default', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const modelsSource = readFileSync(join(import.meta.dirname, '../lib/models.ts'), 'utf8');
+  assert.ok(
+    modelsSource.includes('export const DEFAULT_MODEL_ID: ModelId = MODELS[0].id;') &&
+      modelsSource.includes('export function normalizeModelId'),
+    'the model list should define a canonical fallback model for stale saved ids',
+  );
+  assert.ok(
+    pageSource.includes("const applyModel = (nextModel: string, source: 'localStorage' | 'fork' | 'history' | 'selection') => {") &&
+      pageSource.includes('const resolvedModel = normalizeModelId(nextModel);'),
+    'page should normalize any externally restored model id before using it',
+  );
+  assert.ok(
+    pageSource.includes("if (saved) applyModel(saved, 'localStorage');") &&
+      pageSource.includes("applyModel(mo, 'fork');") &&
+      pageSource.includes("applyModel(item.model, 'history');"),
+    'local storage, fork restores, and saved history restores should all recover from removed model ids',
   );
 });
 

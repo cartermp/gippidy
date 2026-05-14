@@ -1,6 +1,6 @@
 import type { Image, Message, Pdf, Role } from './chat';
 import { DEFAULT_FONT_ID, isFontId, type FontId } from './fonts';
-import { ALLOWED_MODELS } from './models';
+import { isModelId } from './models';
 
 type ValidationResult<T> =
   | { ok: true; value: T }
@@ -124,7 +124,7 @@ export function validateChatRequest(input: unknown): ValidationResult<{
   if (!isPlainObject(input)) return fail('invalid request body');
   const messages = validateMessages(input.messages);
   if (!messages.ok) return messages;
-  if (typeof input.model !== 'string' || !ALLOWED_MODELS.has(input.model)) return fail('unknown model');
+  if (typeof input.model !== 'string' || !isModelId(input.model)) return fail('unknown model');
   if (input.systemPrompt !== undefined && typeof input.systemPrompt !== 'string') return fail('invalid systemPrompt');
   if (typeof input.systemPrompt === 'string' && input.systemPrompt.length > LIMITS.maxSystemPromptChars) {
     return fail('systemPrompt too large', 413);
@@ -146,7 +146,7 @@ export function validateShareRequest(input: unknown): ValidationResult<{
   if (!isPlainObject(input)) return fail('invalid request body');
   const messages = validateMessages(input.messages);
   if (!messages.ok) return messages;
-  if (typeof input.model !== 'string' || !ALLOWED_MODELS.has(input.model)) return fail('unknown model');
+  if (typeof input.model !== 'string' || !isModelId(input.model)) return fail('unknown model');
   if (input.systemPrompt !== undefined && typeof input.systemPrompt !== 'string') return fail('invalid systemPrompt');
   if (typeof input.systemPrompt === 'string' && input.systemPrompt.length > LIMITS.maxSystemPromptChars) {
     return fail('systemPrompt too large', 413);

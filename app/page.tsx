@@ -6,7 +6,7 @@ import RenderedMarkdown from './rendered-markdown';
 import { renderMarkdown } from '@/lib/markdown';
 import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
 import { DEFAULT_FONT_ID, FONTS, getFontFamily, isFontId, type FontId } from '@/lib/fonts';
-import { MODELS } from '@/lib/models';
+import { DEFAULT_MODEL_ID, getModelLabel, MODELS, normalizeModelId } from '@/lib/models';
 import { splitMessageFollowups, type Role, type Image, type Pdf, type Message } from '@/lib/chat';
 import { LIMITS } from '@/lib/validation';
 
@@ -163,6 +163,9 @@ function parseStreamError(status: number, body: string): string {
     b.includes('tokens exceed') ||
     b.includes('reduce your prompt')
   ) return '[TOO LONG] Conversation exceeds this model\'s context limit. Use [CLEAR] to start fresh.';
+  if (b.includes('unknown model')) {
+    return '[MODEL ERROR] This chat is set to a model that is no longer available. Choose another model in [SETTINGS] and try again.';
+  }
   if (status === 400) return '[REQUEST ERROR] That request could not be processed. Try shortening it or starting a new chat.';
   if (status === 404 || status === 405) return '[APP ERROR] The chat service is unavailable right now. Refresh and try again.';
   if (status >= 500) return `[SERVER ERROR] The model returned an error (${status}). Try again.`;
@@ -228,7 +231,7 @@ function readPdfFiles(files: File[], onEach: (f: PendingPdf) => void) {
 export default function Home() {
   const [messages, setMessages]                 = useState<Message[]>([]);
   const [input, setInput]                       = useState('');
-  const [model, setModel]                       = useState('claude-sonnet-4-6');
+  const [model, setModel]                       = useState(DEFAULT_MODEL_ID);
   const [systemPrompt, setSystemPrompt]         = useState(NORMAL_DEFAULT_SYSTEM_PROMPT);
   const [streaming, setStreaming]               = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
@@ -386,6 +389,20 @@ export default function Home() {
     setFontDom(nextFont);
   };
 
+  const applyModel = (nextModel: string, source: 'localStorage' | 'fork' | 'history' | 'selection') => {
+    const resolvedModel = normalizeModelId(nextModel);
+    setModel(resolvedModel);
+    localStorage.setItem(MODEL_KEY, resolvedModel);
+    if (resolvedModel !== nextModel) {
+      logClientEvent('model.invalid_restored', 'warn', {
+        source,
+        requested: nextModel,
+        resolved: resolvedModel,
+      });
+    }
+    return resolvedModel;
+  };
+
   const rememberActiveHistoryChat = (id: string | null) => {
     if (id) localStorage.setItem(ACTIVE_HISTORY_CHAT_KEY, id);
     else localStorage.removeItem(ACTIVE_HISTORY_CHAT_KEY);
@@ -394,8 +411,7 @@ export default function Home() {
   const applyLoadedChat = (item: HistoryItem) => {
     chatStateVersionRef.current += 1;
     setMessages(withRenderedMessages(item.messages));
-    setModel(item.model);
-    localStorage.setItem(MODEL_KEY, item.model);
+    applyModel(item.model, 'history');
     systemPromptRef.current = item.systemPrompt ?? '';
     setSystemPrompt(item.systemPrompt ?? '');
     chatIdRef.current = item.id;
@@ -609,7 +625,7 @@ export default function Home() {
 
   useEffect(() => {
     const saved = localStorage.getItem(MODEL_KEY);
-    if (saved) setModel(saved);
+    if (saved) applyModel(saved, 'localStorage');
     const savedFont = localStorage.getItem(FONT_KEY);
     if (savedFont && isFontId(savedFont)) applyFont(savedFont);
     const savedGirlMode = localStorage.getItem(GIRL_MODE_KEY);
@@ -632,8 +648,7 @@ export default function Home() {
         const { messages: m, model: mo, systemPrompt: sp } = JSON.parse(fork);
         chatStateVersionRef.current += 1;
         setMessages(withRenderedMessages(m));
-        setModel(mo);
-        localStorage.setItem(MODEL_KEY, mo);
+        applyModel(mo, 'fork');
         systemPromptRef.current = sp ?? '';
         setSystemPrompt(sp ?? '');
         chatIdRef.current = null; // fork always starts a new history entry
@@ -769,8 +784,7 @@ export default function Home() {
   };
 
   const handleModelChange = (m: string) => {
-    setModel(m);
-    localStorage.setItem(MODEL_KEY, m);
+    applyModel(m, 'selection');
   };
 
   const handleSystemChange = (s: string) => {
@@ -1245,7 +1259,7 @@ export default function Home() {
   };
 
   const handleExport = () => {
-    const modelLabel = MODELS.find(m => m.id === model)?.label ?? model;
+    const modelLabel = getModelLabel(model);
     const date = new Date().toISOString().slice(0, 10);
     const lines: string[] = [`# Chat — ${date}`, ``, `**Model:** ${modelLabel}`, ``];
     for (const msg of messages) {
@@ -1264,7 +1278,7 @@ export default function Home() {
       <header>
         <a className="logo" href="/" onClick={e => { e.preventDefault(); startFreshChat(); }}>GIPPIDY</a>
         <span className="model-label">
-          {MODELS.find(m => m.id === model)?.label}
+          {getModelLabel(model)}
           {savedFlash && <span className="saved-flash"> ✓ saved</span>}
         </span>
         <div className="header-spacer" />
