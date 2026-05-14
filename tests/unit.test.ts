@@ -1043,6 +1043,11 @@ test('validateSettingsRequest: validates and defaults girlMode and font', () => 
     source.includes("font: typeof input.font === 'string' ? input.font : DEFAULT_FONT_ID,"),
     'validateSettingsRequest should default the saved font to the app default when none is supplied',
   );
+  assert.ok(
+    source.includes("if (input.customFontFamily !== undefined && typeof input.customFontFamily !== 'string') return fail('invalid customFontFamily');") &&
+      source.includes("customFontFamily: normalizeCustomFontFamily(typeof input.customFontFamily === 'string' ? input.customFontFamily : ''),"),
+    'validateSettingsRequest should normalize the advanced custom font stack field',
+  );
 });
 
 test('settings persistence preserves untouched fields and tolerates older schemas', () => {
@@ -1092,6 +1097,10 @@ test('page source merges local settings changes before initial settings hydrate 
     'page should keep a local font choice instead of overwriting it with stale server data',
   );
   assert.ok(
+    source.includes("const nextCustomFontFamily = pending.customFontFamily ?? normalizeCustomFontFamily(cff ?? customFontFamilyRef.current);"),
+    'page should keep a local custom font stack instead of overwriting it with stale server data',
+  );
+  assert.ok(
     source.includes('pendingPersistRef.current = { ...pendingPersistRef.current, ...overrides };'),
     'page should merge back-to-back settings changes before sending them',
   );
@@ -1126,26 +1135,31 @@ test('font settings let users pick and save alternate terminal fonts', () => {
   const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
   const cssSource = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
   const fontsSource = readFileSync(join(import.meta.dirname, '../lib/fonts.ts'), 'utf8');
-  const migrateSource = readFileSync(join(import.meta.dirname, '../scripts/migrate.mjs'), 'utf8');
+  const layoutSource = readFileSync(join(import.meta.dirname, '../app/layout.tsx'), 'utf8');
   assert.ok(
     fontsSource.includes("label: 'Courier New'") &&
       fontsSource.includes("label: 'Menlo'") &&
       fontsSource.includes("label: 'Consolas'") &&
-      fontsSource.includes("label: 'Monaco'"),
-    'the app should expose a small built-in list of terminal-style font options',
+      fontsSource.includes("label: 'Monaco'") &&
+      fontsSource.includes("label: 'JetBrains Mono'") &&
+      fontsSource.includes("label: 'IBM Plex Mono'"),
+    'the app should expose a curated built-in list of terminal-style font options',
   );
   assert.ok(
     pageSource.includes("const FONT_KEY     = 'gippidy-font';") &&
+      pageSource.includes("const CUSTOM_FONT_FAMILY_KEY = 'gippidy-custom-font-family';") &&
       pageSource.includes("const [font, setFont]                         = useState<FontId>(DEFAULT_FONT_ID);") &&
+      pageSource.includes("const [customFontFamily, setCustomFontFamily] = useState('');") &&
       pageSource.includes("const savedFont = localStorage.getItem(FONT_KEY);") &&
-      pageSource.includes("if (savedFont && isFontId(savedFont)) applyFont(savedFont);"),
-    'page should restore the saved font choice from localStorage during startup',
+      pageSource.includes("const savedCustomFontFamily = normalizeCustomFontFamily(localStorage.getItem(CUSTOM_FONT_FAMILY_KEY));"),
+    'page should restore the saved font choice and custom stack from localStorage during startup',
   );
   assert.ok(
     pageSource.includes("logClientEvent('settings.invalid_font', 'warn'") &&
-      pageSource.includes("persistSettings({ font: nextFont }, true);") &&
+      pageSource.includes('Custom font stack') &&
+      pageSource.includes('handleCustomFontFamilyChange') &&
       pageSource.includes('<label>Font</label>'),
-    'settings should let the user choose a font and persist it immediately',
+    'settings should let the user choose a font and optionally enter a custom local font stack',
   );
   assert.ok(
     cssSource.includes('--app-font-family:') &&
@@ -1153,9 +1167,10 @@ test('font settings let users pick and save alternate terminal fonts', () => {
     'globals.css should route app text through a CSS variable so the selected font applies everywhere',
   );
   assert.ok(
-    migrateSource.includes("font_family   TEXT NOT NULL DEFAULT 'courier-new'") &&
-      migrateSource.includes("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS font_family TEXT NOT NULL DEFAULT 'courier-new'"),
-    'database migrations should persist the selected font in user_settings',
+    layoutSource.includes("JetBrains_Mono") &&
+      layoutSource.includes("IBM_Plex_Mono") &&
+      layoutSource.includes("const FONT_BOOTSTRAP ="),
+    'layout should load the bundled web fonts and bootstrap the saved font before hydration',
   );
 });
 

@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { query } from '@/lib/db';
-import { DEFAULT_FONT_ID, isFontId, type FontId } from '@/lib/fonts';
+import { DEFAULT_FONT_ID, getStoredFontFamily, parseStoredFontFamily } from '@/lib/fonts';
 import { logRouteOutcome, type LogFields } from '@/lib/log';
 import { getRequestId, jsonResponse, PRIVATE_NO_STORE, readContentLength } from '@/lib/request';
 import { LIMITS, validateSettingsRequest } from '@/lib/validation';
@@ -17,7 +17,7 @@ type SettingsPatch = {
   systemPrompt: string | null;
   saveHistory: boolean | null;
   girlMode: boolean | null;
-  font: FontId | null;
+  fontFamily: string | null;
   keyJwk: string | null;
 };
 
@@ -80,7 +80,7 @@ async function upsertSettingsRow(email: string, patch: SettingsPatch): Promise<{
           key_jwk       = COALESCE($4, user_settings.key_jwk),
           girl_mode     = COALESCE($5, user_settings.girl_mode),
           font_family   = COALESCE($6, user_settings.font_family)`,
-      [email, patch.systemPrompt, patch.saveHistory, patch.keyJwk, patch.girlMode, patch.font],
+      [email, patch.systemPrompt, patch.saveHistory, patch.keyJwk, patch.girlMode, patch.fontFamily],
     );
     return { legacySchema: false, hasFontColumn: true };
   } catch (error) {
@@ -152,8 +152,7 @@ export async function GET(req: Request) {
     ctx.user = session.user.email;
 
     const { row, legacySchema, hasFontColumn } = await getSettingsRow(session.user.email);
-    const savedFont = row?.font_family ?? null;
-    const font = savedFont && isFontId(savedFont) ? savedFont : DEFAULT_FONT_ID;
+    const { font, customFontFamily } = parseStoredFontFamily(row?.font_family ?? null);
     ctx.status = 200;
     ctx.hasKey = !!row?.key_jwk;
     ctx.saveHistory = row?.save_history ?? false;
@@ -166,6 +165,7 @@ export async function GET(req: Request) {
       systemPrompt: row?.system_prompt ?? '',
       saveHistory: row?.save_history ?? false,
       font,
+      customFontFamily,
       ...(legacySchema ? {} : { girlMode: row?.girl_mode ?? false }),
       keyJwk: row?.key_jwk ?? null,
     }, {}, { requestId, cacheControl: PRIVATE_NO_STORE });
@@ -242,7 +242,9 @@ export async function PUT(req: Request) {
       systemPrompt: hasOwn(input, 'systemPrompt') ? parsed.value.systemPrompt : null,
       saveHistory: hasOwn(input, 'saveHistory') ? parsed.value.saveHistory : null,
       girlMode: hasOwn(input, 'girlMode') ? parsed.value.girlMode : null,
-      font: hasOwn(input, 'font') ? parsed.value.font : null,
+      fontFamily: hasOwn(input, 'font') || hasOwn(input, 'customFontFamily')
+        ? getStoredFontFamily(parsed.value.font, parsed.value.customFontFamily)
+        : null,
       keyJwk: hasOwn(input, 'keyJwk') ? parsed.value.keyJwk : null,
     };
 
@@ -250,13 +252,13 @@ export async function PUT(req: Request) {
     ctx.keyJwkChars = patch.keyJwk === null ? ctx.keyJwkChars : patch.keyJwk.length;
     ctx.saveHistory = patch.saveHistory;
     ctx.girlMode = patch.girlMode;
-    ctx.font = patch.font;
+    ctx.font = patch.fontFamily;
     ctx.hasKey = patch.keyJwk === null ? null : patch.keyJwk.length > 0;
 
     const { legacySchema, hasFontColumn } = await upsertSettingsRow(session.user.email, patch);
     ctx.status = 204;
     ctx.girlMode = legacySchema ? null : patch.girlMode;
-    ctx.font = hasFontColumn ? patch.font : null;
+    ctx.font = hasFontColumn ? patch.fontFamily : null;
     ctx.hasFontColumn = hasFontColumn;
     ctx.legacySchema = legacySchema;
     return new Response(null, {

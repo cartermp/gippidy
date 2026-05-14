@@ -1,5 +1,5 @@
 import type { Image, Message, Pdf, Role } from './chat';
-import { DEFAULT_FONT_ID, isFontId, type FontId } from './fonts';
+import { DEFAULT_FONT_ID, isFontId, normalizeCustomFontFamily, type FontId } from './fonts';
 import { isModelId } from './models';
 
 type ValidationResult<T> =
@@ -24,6 +24,7 @@ export const LIMITS = {
   maxTextFileBytes: 500_000,
   maxPdfNameChars: 200,
   maxSystemPromptChars: 20_000,
+  maxCustomFontFamilyChars: 200,
   maxJwkChars: 8_000,
   maxIvChars: 256,
   maxCiphertextBytes: 6_000_000,
@@ -166,6 +167,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
   saveHistory: boolean;
   girlMode: boolean;
   font: FontId;
+  customFontFamily: string;
   keyJwk: string | null;
 }> {
   if (!isPlainObject(input)) return fail('invalid request body');
@@ -177,6 +179,10 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
   if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');
   if (input.font !== undefined && typeof input.font !== 'string') return fail('invalid font');
   if (typeof input.font === 'string' && !isFontId(input.font)) return fail('invalid font');
+  if (input.customFontFamily !== undefined && typeof input.customFontFamily !== 'string') return fail('invalid customFontFamily');
+  if (typeof input.customFontFamily === 'string' && input.customFontFamily.length > LIMITS.maxCustomFontFamilyChars) {
+    return fail('customFontFamily too large', 413);
+  }
   if (input.keyJwk !== undefined && input.keyJwk !== null && typeof input.keyJwk !== 'string') return fail('invalid keyJwk');
   if (typeof input.keyJwk === 'string') {
     if (input.keyJwk.length > LIMITS.maxJwkChars) return fail('keyJwk too large', 413);
@@ -193,6 +199,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
     saveHistory: input.saveHistory ?? false,
     girlMode: input.girlMode ?? false,
     font: typeof input.font === 'string' ? input.font : DEFAULT_FONT_ID,
+    customFontFamily: normalizeCustomFontFamily(typeof input.customFontFamily === 'string' ? input.customFontFamily : ''),
     keyJwk: typeof input.keyJwk === 'string' ? input.keyJwk : null,
   });
 }
