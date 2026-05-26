@@ -1022,6 +1022,17 @@ test('header and settings stay above the scroll area so top controls remain clic
   );
 });
 
+test('mobile header actions move onto their own wrapped row before they overflow off screen', () => {
+  const cssSource = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+  assert.ok(
+    cssSource.includes('@media (max-width: 540px) {') &&
+      cssSource.includes('flex-basis: 100%;') &&
+      cssSource.includes('width: 100%;') &&
+      cssSource.includes('justify-content: flex-start;'),
+    'mobile header controls should take a full second row and wrap there instead of overflowing horizontally',
+  );
+});
+
 // ── settings validation ────────────────────────────────────────────────────────
 
 test('validateSettingsRequest: validates and defaults girlMode and font', () => {
