@@ -6,18 +6,14 @@ import RenderedMarkdown from './rendered-markdown';
 import { renderMarkdown } from '@/lib/markdown';
 import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
 import { CUSTOM_FONT_ID, DEFAULT_FONT_ID, FONTS, getFontFamily, isFontId, normalizeCustomFontFamily, type FontId } from '@/lib/fonts';
-import { DEFAULT_MODEL_ID, getModelLabel, MODELS, normalizeModelId } from '@/lib/models';
+import { DEFAULT_MODEL_ID, getModelLabel, MODELS, normalizeModelId, type ModelId } from '@/lib/models';
 import { splitMessageFollowups, type Role, type Image, type Pdf, type Message } from '@/lib/chat';
 import { LIMITS } from '@/lib/validation';
 
 type PendingFile = { name: string; content: string };         // text/code files
 type PendingPdf  = Pdf;
 
-const MODEL_KEY    = 'gippidy-model';
 const KEY_WARNED   = 'gippidy-key-warned';
-const FONT_KEY     = 'gippidy-font';
-const CUSTOM_FONT_FAMILY_KEY = 'gippidy-custom-font-family';
-const GIRL_MODE_KEY = 'gippidy-girl-mode';
 const ACTIVE_HISTORY_CHAT_KEY = 'gippidy-active-history-chat';
 const HISTORY_PREVIEW_CACHE_KEY = 'gippidy-history-preview-cache';
 const GIRL_MODE_ATTR = 'data-girl-mode';
@@ -59,6 +55,7 @@ type SettingsPatch = {
   girlMode?: boolean;
   font?: FontId;
   customFontFamily?: string;
+  model?: ModelId;
   keyJwk?: string | null;
 };
 type PendingSettings = Omit<SettingsPatch, 'keyJwk'>;
@@ -391,13 +388,12 @@ export default function Home() {
   };
 
   const applyGirlMode = (enabled: boolean) => {
-    applyGirlModeState(enabled, true);
+    applyGirlModeState(enabled);
   };
 
-  const applyGirlModeState = (enabled: boolean, persistLocal: boolean) => {
+  const applyGirlModeState = (enabled: boolean) => {
     girlModeRef.current = enabled;
     setGirlMode(enabled);
-    if (persistLocal) localStorage.setItem(GIRL_MODE_KEY, enabled ? '1' : '0');
     setGirlModeDom(enabled);
   };
 
@@ -407,16 +403,12 @@ export default function Home() {
     customFontFamilyRef.current = normalizedCustomFontFamily;
     setFont(nextFont);
     setCustomFontFamily(normalizedCustomFontFamily);
-    localStorage.setItem(FONT_KEY, nextFont);
-    if (normalizedCustomFontFamily) localStorage.setItem(CUSTOM_FONT_FAMILY_KEY, normalizedCustomFontFamily);
-    else localStorage.removeItem(CUSTOM_FONT_FAMILY_KEY);
     setFontDom(nextFont, normalizedCustomFontFamily);
   };
 
-  const applyModel = (nextModel: string, source: 'localStorage' | 'fork' | 'history' | 'selection') => {
+  const applyModel = (nextModel: string, source: 'settings' | 'fork' | 'history' | 'selection') => {
     const resolvedModel = normalizeModelId(nextModel);
     setModel(resolvedModel);
-    localStorage.setItem(MODEL_KEY, resolvedModel);
     if (resolvedModel !== nextModel) {
       logClientEvent('model.invalid_restored', 'warn', {
         source,
@@ -648,26 +640,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const saved = localStorage.getItem(MODEL_KEY);
-    if (saved) applyModel(saved, 'localStorage');
-    const savedCustomFontFamily = normalizeCustomFontFamily(localStorage.getItem(CUSTOM_FONT_FAMILY_KEY));
-    const savedFont = localStorage.getItem(FONT_KEY);
-    if (savedFont && isFontId(savedFont)) applyFont(savedFont, savedCustomFontFamily);
-    else if (savedCustomFontFamily) {
-      customFontFamilyRef.current = savedCustomFontFamily;
-      setCustomFontFamily(savedCustomFontFamily);
-    }
-    const savedGirlMode = localStorage.getItem(GIRL_MODE_KEY);
     const activeHistoryChatId = localStorage.getItem(ACTIVE_HISTORY_CHAT_KEY);
-    if (savedGirlMode === '1' || savedGirlMode === '0') {
-      const savedGirlModeEnabled = savedGirlMode === '1';
-      applyGirlMode(savedGirlModeEnabled);
-      const nextPrompt = resolveDefaultSystemPrompt(systemPromptRef.current, savedGirlModeEnabled);
-      if (nextPrompt !== systemPromptRef.current) {
-        systemPromptRef.current = nextPrompt;
-        setSystemPrompt(nextPrompt);
-      }
-    }
 
     const fork = localStorage.getItem('gippidy-fork');
     localStorage.removeItem('gippidy-fork');
@@ -682,7 +655,7 @@ export default function Home() {
         setSystemPrompt(sp ?? '');
         if (typeof gm === 'boolean') {
           forkGirlModeOverrideRef.current = gm;
-          applyGirlModeState(gm, false);
+          applyGirlModeState(gm);
         }
         chatIdRef.current = null; // fork always starts a new history entry
         rememberActiveHistoryChat(null);
@@ -699,8 +672,9 @@ export default function Home() {
         if (!r.ok) throw new Error(`settings_get_${r.status}`);
         return r.json();
       })
-      .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, font: fo, customFontFamily: cff, keyJwk }) => {
+      .then(async ({ systemPrompt, saveHistory: sh, girlMode: gm, font: fo, customFontFamily: cff, model: mo, keyJwk }) => {
         const pending = pendingSettingsRef.current;
+        const nextModel = pending.model ?? normalizeModelId(mo);
         const nextSaveHistory = pending.saveHistory ?? Boolean(sh);
         const nextGirlMode = pending.girlMode ?? forkGirlModeOverrideRef.current ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);
         const nextCustomFontFamily = pending.customFontFamily ?? normalizeCustomFontFamily(cff ?? customFontFamilyRef.current);
@@ -714,6 +688,7 @@ export default function Home() {
 
         systemPromptRef.current = nextSystemPrompt;
         setSystemPrompt(nextSystemPrompt);
+        applyModel(nextModel, 'settings');
         saveHistoryRef.current = nextSaveHistory;
         setSaveHistory(nextSaveHistory);
         applyGirlMode(nextGirlMode);
@@ -819,7 +794,10 @@ export default function Home() {
   };
 
   const handleModelChange = (m: string) => {
-    applyModel(m, 'selection');
+    const nextModel = normalizeModelId(m);
+    applyModel(nextModel, 'selection');
+    rememberPendingSettings({ model: nextModel });
+    persistSettings({ model: nextModel }, true);
   };
 
   const handleSystemChange = (s: string) => {
@@ -843,8 +821,6 @@ export default function Home() {
     const normalizedCustomFontFamily = normalizeCustomFontFamily(nextCustomFontFamily);
     customFontFamilyRef.current = normalizedCustomFontFamily;
     setCustomFontFamily(normalizedCustomFontFamily);
-    if (normalizedCustomFontFamily) localStorage.setItem(CUSTOM_FONT_FAMILY_KEY, normalizedCustomFontFamily);
-    else localStorage.removeItem(CUSTOM_FONT_FAMILY_KEY);
 
     if (fontRef.current === CUSTOM_FONT_ID) {
       applyFont(CUSTOM_FONT_ID, normalizedCustomFontFamily);
@@ -854,6 +830,7 @@ export default function Home() {
     }
 
     rememberPendingSettings({ customFontFamily: normalizedCustomFontFamily });
+    persistSettings({ customFontFamily: normalizedCustomFontFamily });
   };
 
   const handleToggleSaveHistory = (val: boolean) => {

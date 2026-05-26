@@ -1,6 +1,6 @@
 import type { Image, Message, Pdf, Role } from './chat';
 import { DEFAULT_FONT_ID, isFontId, normalizeCustomFontFamily, type FontId } from './fonts';
-import { isModelId } from './models';
+import { DEFAULT_MODEL_ID, isModelId, type ModelId } from './models';
 
 type ValidationResult<T> =
   | { ok: true; value: T }
@@ -168,6 +168,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
   girlMode: boolean;
   font: FontId;
   customFontFamily: string;
+  model: ModelId;
   keyJwk: string | null;
 }> {
   if (!isPlainObject(input)) return fail('invalid request body');
@@ -179,6 +180,8 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
   if (input.girlMode !== undefined && typeof input.girlMode !== 'boolean') return fail('invalid girlMode');
   if (input.font !== undefined && typeof input.font !== 'string') return fail('invalid font');
   if (typeof input.font === 'string' && !isFontId(input.font)) return fail('invalid font');
+  if (input.model !== undefined && typeof input.model !== 'string') return fail('invalid model');
+  if (typeof input.model === 'string' && !isModelId(input.model)) return fail('invalid model');
   if (input.customFontFamily !== undefined && typeof input.customFontFamily !== 'string') return fail('invalid customFontFamily');
   if (typeof input.customFontFamily === 'string' && input.customFontFamily.length > LIMITS.maxCustomFontFamilyChars) {
     return fail('customFontFamily too large', 413);
@@ -199,6 +202,7 @@ export function validateSettingsRequest(input: unknown): ValidationResult<{
     saveHistory: input.saveHistory ?? false,
     girlMode: input.girlMode ?? false,
     font: typeof input.font === 'string' ? input.font : DEFAULT_FONT_ID,
+    model: typeof input.model === 'string' ? input.model : DEFAULT_MODEL_ID,
     customFontFamily: normalizeCustomFontFamily(typeof input.customFontFamily === 'string' ? input.customFontFamily : ''),
     keyJwk: typeof input.keyJwk === 'string' ? input.keyJwk : null,
   });

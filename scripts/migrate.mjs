@@ -25,7 +25,8 @@ await pool.query(`
     save_history  BOOLEAN NOT NULL DEFAULT FALSE,
     key_jwk       TEXT,
     girl_mode     BOOLEAN NOT NULL DEFAULT FALSE,
-    font_family   TEXT NOT NULL DEFAULT 'courier-new'
+    font_family   TEXT NOT NULL DEFAULT 'courier-new',
+    model_id      TEXT NOT NULL DEFAULT 'gpt-5.5'
   )
 `);
 await pool.query(`
@@ -39,6 +40,9 @@ await pool.query(`
 `);
 await pool.query(`
   ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS font_family TEXT NOT NULL DEFAULT 'courier-new'
+`);
+await pool.query(`
+  ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS model_id TEXT NOT NULL DEFAULT 'gpt-5.5'
 `);
 console.log('✓ user_settings table ready');
 

@@ -1,23 +1,17 @@
 import { auth } from '@/auth';
-import { query } from '@/lib/db';
-import { DEFAULT_FONT_ID, getStoredFontFamily, parseStoredFontFamily } from '@/lib/fonts';
+import { getStoredFontFamily } from '@/lib/fonts';
 import { logRouteOutcome, type LogFields } from '@/lib/log';
+import type { ModelId } from '@/lib/models';
 import { getRequestId, jsonResponse, PRIVATE_NO_STORE, readContentLength } from '@/lib/request';
+import { getUserSettings, upsertUserSettings } from '@/lib/user-settings';
 import { LIMITS, validateSettingsRequest } from '@/lib/validation';
-
-type SettingsRow = {
-  system_prompt: string;
-  save_history: boolean;
-  key_jwk: string | null;
-  girl_mode?: boolean;
-  font_family?: string | null;
-};
 
 type SettingsPatch = {
   systemPrompt: string | null;
   saveHistory: boolean | null;
   girlMode: boolean | null;
   fontFamily: string | null;
+  model: ModelId | null;
   keyJwk: string | null;
 };
 
@@ -29,101 +23,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isMissingColumn(error: unknown, column: string): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as { code?: string; message?: string };
-  const message = candidate.message ?? String(error);
-  return candidate.code === '42703' && message.includes(column);
-}
-
-async function getSettingsRow(email: string): Promise<{ row?: SettingsRow; legacySchema: boolean; hasFontColumn: boolean }> {
-  try {
-    const result = await query(
-      'SELECT system_prompt, save_history, key_jwk, girl_mode, font_family FROM user_settings WHERE email = $1',
-      [email],
-    );
-    return { row: result.rows[0] as SettingsRow | undefined, legacySchema: false, hasFontColumn: true };
-  } catch (error) {
-    if (isMissingColumn(error, 'font_family')) {
-      try {
-        const result = await query(
-          'SELECT system_prompt, save_history, key_jwk, girl_mode FROM user_settings WHERE email = $1',
-          [email],
-        );
-        return { row: result.rows[0] as SettingsRow | undefined, legacySchema: false, hasFontColumn: false };
-      } catch (fallbackError) {
-        if (!isMissingColumn(fallbackError, 'girl_mode')) throw fallbackError;
-        const result = await query(
-          'SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1',
-          [email],
-        );
-        return { row: result.rows[0] as SettingsRow | undefined, legacySchema: true, hasFontColumn: false };
-      }
-    }
-    if (!isMissingColumn(error, 'girl_mode')) throw error;
-    const result = await query(
-      'SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1',
-      [email],
-    );
-    return { row: result.rows[0] as SettingsRow | undefined, legacySchema: true, hasFontColumn: false };
-  }
-}
-
-async function upsertSettingsRow(email: string, patch: SettingsPatch): Promise<{ legacySchema: boolean; hasFontColumn: boolean }> {
-  try {
-    await query(
-      `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk, girl_mode, font_family)
-       VALUES ($1, COALESCE($2, ''), COALESCE($3, FALSE), $4, COALESCE($5, FALSE), COALESCE($6, '${DEFAULT_FONT_ID}'))
-       ON CONFLICT (email) DO UPDATE SET
-          system_prompt = COALESCE($2, user_settings.system_prompt),
-          save_history  = COALESCE($3, user_settings.save_history),
-          key_jwk       = COALESCE($4, user_settings.key_jwk),
-          girl_mode     = COALESCE($5, user_settings.girl_mode),
-          font_family   = COALESCE($6, user_settings.font_family)`,
-      [email, patch.systemPrompt, patch.saveHistory, patch.keyJwk, patch.girlMode, patch.fontFamily],
-    );
-    return { legacySchema: false, hasFontColumn: true };
-  } catch (error) {
-    if (isMissingColumn(error, 'font_family')) {
-      try {
-        await query(
-          `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk, girl_mode)
-           VALUES ($1, COALESCE($2, ''), COALESCE($3, FALSE), $4, COALESCE($5, FALSE))
-           ON CONFLICT (email) DO UPDATE SET
-              system_prompt = COALESCE($2, user_settings.system_prompt),
-              save_history  = COALESCE($3, user_settings.save_history),
-              key_jwk       = COALESCE($4, user_settings.key_jwk),
-              girl_mode     = COALESCE($5, user_settings.girl_mode)`,
-          [email, patch.systemPrompt, patch.saveHistory, patch.keyJwk, patch.girlMode],
-        );
-        return { legacySchema: false, hasFontColumn: false };
-      } catch (fallbackError) {
-        if (!isMissingColumn(fallbackError, 'girl_mode')) throw fallbackError;
-        await query(
-          `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk)
-           VALUES ($1, COALESCE($2, ''), COALESCE($3, FALSE), $4)
-           ON CONFLICT (email) DO UPDATE SET
-              system_prompt = COALESCE($2, user_settings.system_prompt),
-              save_history  = COALESCE($3, user_settings.save_history),
-              key_jwk       = COALESCE($4, user_settings.key_jwk)`,
-          [email, patch.systemPrompt, patch.saveHistory, patch.keyJwk],
-        );
-        return { legacySchema: true, hasFontColumn: false };
-      }
-    }
-    if (!isMissingColumn(error, 'girl_mode')) throw error;
-    await query(
-      `INSERT INTO user_settings (email, system_prompt, save_history, key_jwk)
-       VALUES ($1, COALESCE($2, ''), COALESCE($3, FALSE), $4)
-       ON CONFLICT (email) DO UPDATE SET
-          system_prompt = COALESCE($2, user_settings.system_prompt),
-          save_history  = COALESCE($3, user_settings.save_history),
-          key_jwk       = COALESCE($4, user_settings.key_jwk)`,
-      [email, patch.systemPrompt, patch.saveHistory, patch.keyJwk],
-    );
-    return { legacySchema: true, hasFontColumn: false };
-  }
-}
 
 export async function GET(req: Request) {
   const requestId = getRequestId(req);
@@ -136,7 +35,9 @@ export async function GET(req: Request) {
     saveHistory: null,
     girlMode: null,
     font: null,
+    model: null,
     hasFontColumn: null,
+    hasModelColumn: null,
     legacySchema: null,
     newUser: null,
     error: null,
@@ -151,23 +52,25 @@ export async function GET(req: Request) {
     }
     ctx.user = session.user.email;
 
-    const { row, legacySchema, hasFontColumn } = await getSettingsRow(session.user.email);
-    const { font, customFontFamily } = parseStoredFontFamily(row?.font_family ?? null);
+    const settings = await getUserSettings(session.user.email);
     ctx.status = 200;
-    ctx.hasKey = !!row?.key_jwk;
-    ctx.saveHistory = row?.save_history ?? false;
-    ctx.girlMode = legacySchema ? null : (row?.girl_mode ?? false);
-    ctx.font = font;
-    ctx.hasFontColumn = hasFontColumn;
-    ctx.legacySchema = legacySchema;
-    ctx.newUser = !row;
+    ctx.hasKey = !!settings.keyJwk;
+    ctx.saveHistory = settings.saveHistory;
+    ctx.girlMode = settings.legacySchema ? null : settings.girlMode;
+    ctx.font = settings.font;
+    ctx.model = settings.model;
+    ctx.hasFontColumn = settings.hasFontColumn;
+    ctx.hasModelColumn = settings.hasModelColumn;
+    ctx.legacySchema = settings.legacySchema;
+    ctx.newUser = settings.newUser;
     return jsonResponse({
-      systemPrompt: row?.system_prompt ?? '',
-      saveHistory: row?.save_history ?? false,
-      font,
-      customFontFamily,
-      ...(legacySchema ? {} : { girlMode: row?.girl_mode ?? false }),
-      keyJwk: row?.key_jwk ?? null,
+      systemPrompt: settings.systemPrompt,
+      saveHistory: settings.saveHistory,
+      font: settings.font,
+      customFontFamily: settings.customFontFamily,
+      model: settings.model,
+      ...(settings.legacySchema ? {} : { girlMode: settings.girlMode }),
+      keyJwk: settings.keyJwk,
     }, {}, { requestId, cacheControl: PRIVATE_NO_STORE });
   } catch (error) {
     ctx.status = 500;
@@ -192,14 +95,17 @@ export async function PUT(req: Request) {
     hasSaveHistoryField: null,
     hasGirlModeField: null,
     hasFontField: null,
+    hasModelField: null,
     hasKeyJwkField: null,
     systemPromptChars: null,
     keyJwkChars: null,
     saveHistory: null,
     girlMode: null,
     font: null,
+    model: null,
     hasKey: null,
     hasFontColumn: null,
+    hasModelColumn: null,
     legacySchema: null,
     error: null,
   };
@@ -226,6 +132,7 @@ export async function PUT(req: Request) {
       ctx.hasSaveHistoryField = hasOwn(body, 'saveHistory');
       ctx.hasGirlModeField = hasOwn(body, 'girlMode');
       ctx.hasFontField = hasOwn(body, 'font');
+      ctx.hasModelField = hasOwn(body, 'model');
       ctx.hasKeyJwkField = hasOwn(body, 'keyJwk');
       ctx.systemPromptChars = typeof body.systemPrompt === 'string' ? body.systemPrompt.length : null;
       ctx.keyJwkChars = typeof body.keyJwk === 'string' ? body.keyJwk.length : null;
@@ -245,6 +152,7 @@ export async function PUT(req: Request) {
       fontFamily: hasOwn(input, 'font') || hasOwn(input, 'customFontFamily')
         ? getStoredFontFamily(parsed.value.font, parsed.value.customFontFamily)
         : null,
+      model: hasOwn(input, 'model') ? parsed.value.model : null,
       keyJwk: hasOwn(input, 'keyJwk') ? parsed.value.keyJwk : null,
     };
 
@@ -253,13 +161,16 @@ export async function PUT(req: Request) {
     ctx.saveHistory = patch.saveHistory;
     ctx.girlMode = patch.girlMode;
     ctx.font = patch.fontFamily;
+    ctx.model = patch.model;
     ctx.hasKey = patch.keyJwk === null ? null : patch.keyJwk.length > 0;
 
-    const { legacySchema, hasFontColumn } = await upsertSettingsRow(session.user.email, patch);
+    const { legacySchema, hasFontColumn, hasModelColumn } = await upsertUserSettings(session.user.email, patch);
     ctx.status = 204;
     ctx.girlMode = legacySchema ? null : patch.girlMode;
     ctx.font = hasFontColumn ? patch.fontFamily : null;
     ctx.hasFontColumn = hasFontColumn;
+    ctx.model = hasModelColumn ? patch.model : null;
+    ctx.hasModelColumn = hasModelColumn;
     ctx.legacySchema = legacySchema;
     return new Response(null, {
       status: 204,

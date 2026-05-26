@@ -1040,8 +1040,17 @@ test('validateSettingsRequest: validates and defaults girlMode and font', () => 
     'validateSettingsRequest should reject font values outside the allowed built-in list',
   );
   assert.ok(
+    source.includes("if (input.model !== undefined && typeof input.model !== 'string') return fail('invalid model');") &&
+      source.includes("if (typeof input.model === 'string' && !isModelId(input.model)) return fail('invalid model');"),
+    'validateSettingsRequest should reject model values outside the supported list',
+  );
+  assert.ok(
     source.includes("font: typeof input.font === 'string' ? input.font : DEFAULT_FONT_ID,"),
     'validateSettingsRequest should default the saved font to the app default when none is supplied',
+  );
+  assert.ok(
+    source.includes("model: typeof input.model === 'string' ? input.model : DEFAULT_MODEL_ID,"),
+    'validateSettingsRequest should default the saved model to the canonical app default',
   );
   assert.ok(
     source.includes("if (input.customFontFamily !== undefined && typeof input.customFontFamily !== 'string') return fail('invalid customFontFamily');") &&
@@ -1051,30 +1060,23 @@ test('validateSettingsRequest: validates and defaults girlMode and font', () => 
 });
 
 test('settings persistence preserves untouched fields and tolerates older schemas', () => {
-  const source = readFileSync(join(import.meta.dirname, '../app/api/settings/route.ts'), 'utf8');
+  const routeSource = readFileSync(join(import.meta.dirname, '../app/api/settings/route.ts'), 'utf8');
+  const settingsSource = readFileSync(join(import.meta.dirname, '../lib/user-settings.ts'), 'utf8');
   assert.ok(
-    source.includes('system_prompt = COALESCE($2, user_settings.system_prompt)'),
-    'settings PUT should preserve the existing system prompt when that field was not sent',
+    settingsSource.includes('return `${column} = COALESCE(${param}, user_settings.${column})`;') &&
+      settingsSource.includes("return `COALESCE(${param}, '${DEFAULT_MODEL_ID}')`;") &&
+      settingsSource.includes("return `COALESCE(${param}, '${DEFAULT_FONT_ID}')`;"),
+    'settings storage should preserve untouched fields while still defaulting new rows for model and font settings',
   );
   assert.ok(
-    source.includes('save_history  = COALESCE($3, user_settings.save_history)'),
-    'settings PUT should preserve the existing save_history value when that field was not sent',
+    settingsSource.includes('return selectSettingsRow(email, withoutColumn(columns, missingColumn));') &&
+      settingsSource.includes('return runUpsert(email, patch, withoutColumn(columns, missingColumn));'),
+    'settings storage should retry cleanly when optional settings columns have not been migrated yet',
   );
   assert.ok(
-    source.includes('girl_mode     = COALESCE($5, user_settings.girl_mode)'),
-    'settings PUT should preserve the existing girl_mode value when that field was not sent',
-  );
-  assert.ok(
-    source.includes('font_family   = COALESCE($6, user_settings.font_family)'),
-    'settings PUT should preserve the existing font_family value when that field was not sent',
-  );
-  assert.ok(
-    source.includes('SELECT system_prompt, save_history, key_jwk, girl_mode FROM user_settings WHERE email = $1'),
-    'settings GET should fall back cleanly when the font column has not been migrated yet',
-  );
-  assert.ok(
-    source.includes('SELECT system_prompt, save_history, key_jwk FROM user_settings WHERE email = $1'),
-    'settings GET should fall back when girl_mode has not been migrated yet',
+    routeSource.includes('const settings = await getUserSettings(session.user.email);') &&
+      routeSource.includes('const { legacySchema, hasFontColumn, hasModelColumn } = await upsertUserSettings(session.user.email, patch);'),
+    'settings route should use the shared schema-tolerant settings storage helper for both reads and writes',
   );
 });
 
@@ -1087,6 +1089,10 @@ test('page source merges local settings changes before initial settings hydrate 
   assert.ok(
     source.includes('const nextSaveHistory = pending.saveHistory ?? Boolean(sh);'),
     'page should keep a local saveHistory toggle instead of overwriting it with stale server data',
+  );
+  assert.ok(
+    source.includes('const nextModel = pending.model ?? normalizeModelId(mo);'),
+    'page should keep a locally selected model instead of overwriting it with stale server data',
   );
   assert.ok(
     source.includes("const nextGirlMode = pending.girlMode ?? forkGirlModeOverrideRef.current ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);"),
@@ -1119,15 +1125,15 @@ test('page source normalizes stale saved, restored, and forked model ids to a su
     'the model list should define a canonical fallback model for stale saved ids',
   );
   assert.ok(
-    pageSource.includes("const applyModel = (nextModel: string, source: 'localStorage' | 'fork' | 'history' | 'selection') => {") &&
+    pageSource.includes("const applyModel = (nextModel: string, source: 'settings' | 'fork' | 'history' | 'selection') => {") &&
       pageSource.includes('const resolvedModel = normalizeModelId(nextModel);'),
     'page should normalize any externally restored model id before using it',
   );
   assert.ok(
-    pageSource.includes("if (saved) applyModel(saved, 'localStorage');") &&
+    pageSource.includes("applyModel(nextModel, 'settings');") &&
       pageSource.includes("applyModel(mo, 'fork');") &&
       pageSource.includes("applyModel(item.model, 'history');"),
-    'local storage, fork restores, and saved history restores should all recover from removed model ids',
+    'server settings, fork restores, and saved history restores should all recover from removed model ids',
   );
 });
 
@@ -1146,13 +1152,11 @@ test('font settings let users pick and save alternate terminal fonts', () => {
     'the app should expose a curated built-in list of terminal-style font options',
   );
   assert.ok(
-    pageSource.includes("const FONT_KEY     = 'gippidy-font';") &&
-      pageSource.includes("const CUSTOM_FONT_FAMILY_KEY = 'gippidy-custom-font-family';") &&
-      pageSource.includes("const [font, setFont]                         = useState<FontId>(DEFAULT_FONT_ID);") &&
+    pageSource.includes("const [font, setFont]                         = useState<FontId>(DEFAULT_FONT_ID);") &&
       pageSource.includes("const [customFontFamily, setCustomFontFamily] = useState('');") &&
-      pageSource.includes("const savedFont = localStorage.getItem(FONT_KEY);") &&
-      pageSource.includes("const savedCustomFontFamily = normalizeCustomFontFamily(localStorage.getItem(CUSTOM_FONT_FAMILY_KEY));"),
-    'page should restore the saved font choice and custom stack from localStorage during startup',
+      pageSource.includes("persistSettings({ font: nextFont, customFontFamily: customFontFamilyRef.current }, true);") &&
+      pageSource.includes('persistSettings({ customFontFamily: normalizedCustomFontFamily });'),
+    'page should persist font choices through account settings instead of localStorage',
   );
   assert.ok(
     pageSource.includes("logClientEvent('settings.invalid_font', 'warn'") &&
@@ -1169,8 +1173,32 @@ test('font settings let users pick and save alternate terminal fonts', () => {
   assert.ok(
     layoutSource.includes("JetBrains_Mono") &&
       layoutSource.includes("IBM_Plex_Mono") &&
-      layoutSource.includes("const FONT_BOOTSTRAP ="),
-    'layout should load the bundled web fonts and bootstrap the saved font before hydration',
+      layoutSource.includes('const settings = await getUserSettings(session.user.email);') &&
+      layoutSource.includes("style={{ '--app-font-family': fontFamily } as CSSProperties}") &&
+      layoutSource.includes("data-girl-mode={girlMode ? 'true' : undefined}"),
+    'layout should load bundled fonts and bootstrap the signed-in account appearance on the server',
+  );
+});
+
+test('model settings sync through account settings instead of browser localStorage', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const routeSource = readFileSync(join(import.meta.dirname, '../app/api/settings/route.ts'), 'utf8');
+  const migrateSource = readFileSync(join(import.meta.dirname, '../scripts/migrate.mjs'), 'utf8');
+
+  assert.ok(
+    pageSource.includes('persistSettings({ model: nextModel }, true);') &&
+      !pageSource.includes("const MODEL_KEY    = 'gippidy-model';"),
+    'page should persist the selected model to account settings instead of localStorage',
+  );
+  assert.ok(
+    routeSource.includes('model: settings.model,') &&
+      routeSource.includes("model: hasOwn(input, 'model') ? parsed.value.model : null,"),
+    'settings API should read and write the per-account model setting',
+  );
+  assert.ok(
+    migrateSource.includes("model_id      TEXT NOT NULL DEFAULT 'gpt-5.5'") &&
+      migrateSource.includes("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS model_id TEXT NOT NULL DEFAULT 'gpt-5.5'"),
+    'user_settings schema should persist the selected model for each account',
   );
 });
 
@@ -1227,7 +1255,7 @@ test('shared chats preserve girl mode for viewing and fork restore', () => {
   assert.ok(
     pageSource.includes("const { messages: m, model: mo, systemPrompt: sp, girlMode: gm } = JSON.parse(fork);") &&
       pageSource.includes('forkGirlModeOverrideRef.current = gm;') &&
-      pageSource.includes('applyGirlModeState(gm, false);') &&
+      pageSource.includes('applyGirlModeState(gm);') &&
       pageSource.includes("const nextGirlMode = pending.girlMode ?? forkGirlModeOverrideRef.current ?? (typeof gm === 'boolean' ? gm : girlModeRef.current);"),
     'fork restore should temporarily respect the shared Girl Mode instead of overwriting it with the viewer settings',
   );
