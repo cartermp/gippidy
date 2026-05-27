@@ -3,17 +3,20 @@
 import { memo, useMemo } from 'react';
 import { renderMarkdown } from '@/lib/markdown';
 import { splitMessageFollowups } from '@/lib/chat';
+import { formatUiButtonLabel } from '@/lib/ui-labels';
 
 function RenderedMarkdown({
   text,
   html,
   className,
+  girlMode = false,
   followupsEnabled = false,
   onFollowup,
 }: {
   text?: string;
   html?: string;
   className?: string;
+  girlMode?: boolean;
   followupsEnabled?: boolean;
   onFollowup?: (followup: string) => void;
 }) {
@@ -21,10 +24,12 @@ function RenderedMarkdown({
     () => followupsEnabled ? splitMessageFollowups(text ?? '') : { content: text ?? '', followups: [] },
     [followupsEnabled, text],
   );
-  const preferClientRender = followupsEnabled && text !== undefined;
+  const copyLabel = formatUiButtonLabel('COPY', girlMode);
+  const copiedLabel = formatUiButtonLabel('COPIED!', girlMode);
+  const preferClientRender = text !== undefined && (followupsEnabled || girlMode);
   const rendered = useMemo(
-    () => preferClientRender ? renderMarkdown(content) : html ?? renderMarkdown(content),
-    [preferClientRender, html, content],
+    () => preferClientRender ? renderMarkdown(content, copyLabel) : html ?? renderMarkdown(content, copyLabel),
+    [preferClientRender, html, content, copyLabel],
   );
 
   const handleClick = async (event: React.MouseEvent<HTMLDivElement>) => {
@@ -33,9 +38,9 @@ function RenderedMarkdown({
     const code = button.nextElementSibling?.querySelector('code')?.textContent ?? '';
     if (!code) return;
     await navigator.clipboard.writeText(code);
-    button.textContent = '[COPIED!]';
+    button.textContent = copiedLabel;
     window.setTimeout(() => {
-      if (button.isConnected) button.textContent = '[COPY]';
+      if (button.isConnected) button.textContent = copyLabel;
     }, 2000);
   };
 
@@ -44,7 +49,7 @@ function RenderedMarkdown({
       <div onClick={handleClick} dangerouslySetInnerHTML={{ __html: rendered }} />
       {onFollowup && followups.length > 0 && (
         <div className="followup-list">
-          <div className="followup-heading">[FOLLOW-UPS]</div>
+          <div className="followup-heading">{formatUiButtonLabel('FOLLOW-UPS', girlMode)}</div>
           <div className="followup-buttons">
             {followups.map((followup, index) => (
               <button

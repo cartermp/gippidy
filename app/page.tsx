@@ -8,6 +8,7 @@ import { getOrCreateKey, encrypt, decrypt } from '@/lib/crypto';
 import { CUSTOM_FONT_ID, DEFAULT_FONT_ID, FONTS, getFontFamily, isFontId, normalizeCustomFontFamily, type FontId } from '@/lib/fonts';
 import { DEFAULT_MODEL_ID, getModelLabel, MODELS, normalizeModelId, type ModelId } from '@/lib/models';
 import { splitMessageFollowups, type Role, type Image, type Pdf, type Message } from '@/lib/chat';
+import { formatUiButtonLabel, getMessageLabel } from '@/lib/ui-labels';
 import { LIMITS } from '@/lib/validation';
 
 type PendingFile = { name: string; content: string };         // text/code files
@@ -246,7 +247,7 @@ export default function Home() {
   const [pendingImages, setPendingImages]       = useState<Image[]>([]);
   const [pendingFiles, setPendingFiles]         = useState<PendingFile[]>([]);
   const [pendingPdfs, setPendingPdfs]           = useState<PendingPdf[]>([]);
-  const [shareLabel, setShareLabel]             = useState('[SHARE]');
+  const [shareLabel, setShareLabel]             = useState('SHARE');
   const [showScrollBtn, setShowScrollBtn]       = useState(false);
   const [copiedMsgIndex, setCopiedMsgIndex]     = useState<number | null>(null);
   const [editingIndex, setEditingIndex]         = useState<number | null>(null);
@@ -766,7 +767,7 @@ export default function Home() {
   };
 
   const handleShare = async () => {
-    setShareLabel('[SHARING…]');
+    setShareLabel('SHARING…');
     try {
       const res = await fetch('/api/shares', {
         method: 'POST',
@@ -779,18 +780,18 @@ export default function Home() {
           status: res.status,
           requestId: res.headers.get('x-request-id'),
         });
-        setShareLabel('[TOO LARGE]');
+        setShareLabel('TOO LARGE');
         setTimeout(() => alert(error), 0);
       } else {
         const { id } = await res.json();
         await navigator.clipboard.writeText(`${window.location.origin}/share/${id}`);
-        setShareLabel('[COPIED!]');
+        setShareLabel('COPIED!');
       }
     } catch {
       logClientEvent('share.create_failed', 'error');
-      setShareLabel('[ERROR]');
+      setShareLabel('ERROR');
     }
-    setTimeout(() => setShareLabel('[SHARE]'), 3000);
+    setTimeout(() => setShareLabel('SHARE'), 3000);
   };
 
   const handleModelChange = (m: string) => {
@@ -1302,6 +1303,8 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const buttonLabel = (label: string) => formatUiButtonLabel(label, girlMode);
+
   return (
     <div className="app">
       <header>
@@ -1312,15 +1315,15 @@ export default function Home() {
         </span>
         <div className="header-spacer" />
         <div className="header-actions">
-          <button onClick={() => setShowSettings(s => !s)}>[SETTINGS]</button>
-          <button onClick={handleOpenHistory}>{showHistory ? '[CHAT]' : '[HISTORY]'}</button>
+          <button onClick={() => setShowSettings(s => !s)}>{buttonLabel('SETTINGS')}</button>
+          <button onClick={handleOpenHistory}>{buttonLabel(showHistory ? 'CHAT' : 'HISTORY')}</button>
           {messages.length > 0 && !streaming && (
-            <button onClick={handleShare}>{shareLabel}</button>
+            <button onClick={handleShare}>{buttonLabel(shareLabel)}</button>
           )}
           {messages.length > 0 && (
-            <button onClick={startFreshChat}>[CLEAR]</button>
+            <button onClick={startFreshChat}>{buttonLabel('CLEAR')}</button>
           )}
-          <button onClick={() => signOut({ callbackUrl: '/login' })}>[SIGN OUT]</button>
+          <button onClick={() => signOut({ callbackUrl: '/login' })}>{buttonLabel('SIGN OUT')}</button>
         </div>
       </header>
 
@@ -1379,7 +1382,7 @@ export default function Home() {
           {messages.length > 0 && !streaming && (
             <div className="settings-row">
               <label>Export</label>
-              <button onClick={handleExport}>[EXPORT MARKDOWN]</button>
+              <button onClick={handleExport}>{buttonLabel('EXPORT MARKDOWN')}</button>
             </div>
           )}
         </div>
@@ -1434,7 +1437,7 @@ export default function Home() {
             <div key={i} className={`message ${msg.role}`}>
               <div className="message-shell">
                 <div className="message-head">
-                  <span className="message-label">{msg.role === 'assistant' ? '[OUTPUT]' : '[INPUT]'}</span>
+                  <span className="message-label">{getMessageLabel(msg.role, girlMode)}</span>
                   {editingIndex === null && (
                     <div className="msg-actions">
                       {msg.role === 'assistant' && (
@@ -1444,14 +1447,14 @@ export default function Home() {
                           aria-label="Copy output as markdown"
                           onClick={() => copyMessage(splitMessageFollowups(msg.content).content, i)}
                         >
-                          {copiedMsgIndex === i ? '[COPIED!]' : '[COPY]'}
+                          {buttonLabel(copiedMsgIndex === i ? 'COPIED!' : 'COPY')}
                         </button>
                       )}
                       {msg.role === 'assistant' && !streaming && i === messages.length - 1 && (
-                        <button className="msg-retry-btn" type="button" onClick={handleRetry}>[RETRY]</button>
+                        <button className="msg-retry-btn" type="button" onClick={handleRetry}>{buttonLabel('RETRY')}</button>
                       )}
                       {msg.role === 'user' && !streaming && (
-                        <button className="msg-edit-btn" type="button" onClick={() => startEdit(i)}>[EDIT]</button>
+                        <button className="msg-edit-btn" type="button" onClick={() => startEdit(i)}>{buttonLabel('EDIT')}</button>
                       )}
                     </div>
                   )}
@@ -1475,8 +1478,8 @@ export default function Home() {
                           autoFocus
                         />
                         <div className="edit-actions">
-                          <button type="button" onClick={confirmEdit}>[SEND]</button>
-                          <button type="button" onClick={() => setEditingIndex(null)}>[CANCEL]</button>
+                          <button type="button" onClick={confirmEdit}>{buttonLabel('SEND')}</button>
+                          <button type="button" onClick={() => setEditingIndex(null)}>{buttonLabel('CANCEL')}</button>
                         </div>
                       </div>
                     ) : (
@@ -1484,10 +1487,11 @@ export default function Home() {
                         ? <RenderedMarkdown
                             text={msg.content}
                             html={msg.html}
+                            girlMode={girlMode}
                             followupsEnabled
                             onFollowup={!streaming && i === messages.length - 1 ? handleFollowupClick : undefined}
                           />
-                        : msg.content && <RenderedMarkdown text={msg.content} html={msg.html} />
+                        : msg.content && <RenderedMarkdown text={msg.content} html={msg.html} girlMode={girlMode} />
                     )}
                   </div>
                 </div>
@@ -1498,7 +1502,7 @@ export default function Home() {
             <div className="message assistant">
               <div className="message-shell">
                 <div className="message-head">
-                  <span className="message-label">[OUTPUT]</span>
+                  <span className="message-label">{getMessageLabel('assistant', girlMode)}</span>
                 </div>
                 <div className="message-body">
                   {streamingContent
@@ -1506,6 +1510,7 @@ export default function Home() {
                         html={streamingHtml || undefined}
                         text={streamingContent}
                         className="content"
+                        girlMode={girlMode}
                         followupsEnabled
                       />
                     : <span className="content thinking">
@@ -1579,18 +1584,18 @@ export default function Home() {
             style={{ display: 'none' }}
           />
           <div className="input-tools">
-            <button type="button" className={webSearch ? 'btn-active' : ''} onClick={() => setWebSearch(s => !s)} disabled={streaming}>[WEB]</button>
-            <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>[ATTACH]</button>
+            <button type="button" className={webSearch ? 'btn-active' : ''} onClick={() => setWebSearch(s => !s)} disabled={streaming}>{buttonLabel('WEB')}</button>
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={streaming}>{buttonLabel('ATTACH')}</button>
           </div>
           {streaming ? (
-            <button type="button" onClick={() => abortControllerRef.current?.abort()}>[STOP]</button>
+            <button type="button" onClick={() => abortControllerRef.current?.abort()}>{buttonLabel('STOP')}</button>
           ) : (
             <button
               type="submit"
               disabled={!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0 && pendingPdfs.length === 0}
               onPointerDown={(e) => e.preventDefault()}
             >
-              [SEND]
+              {buttonLabel('SEND')}
             </button>
           )}
         </div>

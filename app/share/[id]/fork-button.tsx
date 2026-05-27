@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { formatUiButtonLabel } from '@/lib/ui-labels';
 
 type Message = { role: string; content: string; images?: unknown[] };
 
@@ -17,5 +18,5 @@ export default function ForkButton({ messages, model, systemPrompt, girlMode }: 
     router.push('/');
   };
 
-  return <button onClick={handleFork}>[FORK — CONTINUE]</button>;
+  return <button onClick={handleFork}>{formatUiButtonLabel('FORK — CONTINUE', girlMode)}</button>;
 }

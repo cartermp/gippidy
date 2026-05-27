@@ -7,6 +7,7 @@ import ForkButton from './fork-button';
 import logger from '@/lib/log';
 import type { Message } from '@/lib/chat';
 import { getSharedChat } from '@/lib/share';
+import { formatUiButtonLabel, getMessageLabel } from '@/lib/ui-labels';
 import { isShareId } from '@/lib/validation';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -58,7 +59,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
           <span className="share-meta">{share.model} · {date}</span>
           <div className="header-spacer" />
           <div className="header-actions">
-            {sessionResult && <Link href="/" className="header-link">[BACK]</Link>}
+            {sessionResult && <Link href="/" className="header-link">{formatUiButtonLabel('BACK', share.girl_mode)}</Link>}
             {sessionResult
               ? <ForkButton
                   messages={messages}
@@ -71,7 +72,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
                     'use server';
                     await signIn('google', { redirectTo: `/share/${id}` });
                   }}>
-                    <button type="submit">[SIGN IN TO CONTINUE]</button>
+                    <button type="submit">{formatUiButtonLabel('SIGN IN TO CONTINUE', share.girl_mode)}</button>
                   </form>
                 : <span className="share-meta">sign-in unavailable</span>
             }
@@ -85,7 +86,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
             <div key={i} className={`message ${msg.role}`}>
               <div className="message-shell">
                 <div className="message-head">
-                  <span className="message-label">{msg.role === 'assistant' ? '[OUTPUT]' : '[INPUT]'}</span>
+                  <span className="message-label">{getMessageLabel(msg.role, share.girl_mode)}</span>
                 </div>
                 <div className="message-body">
                   {msg.role === 'user' && <span className="role">&gt;</span>}
@@ -98,8 +99,8 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
                       </div>
                     )}
                     {msg.role === 'assistant'
-                      ? <RenderedMarkdown text={msg.content} followupsEnabled />
-                      : msg.content && <RenderedMarkdown text={msg.content} />
+                      ? <RenderedMarkdown text={msg.content} girlMode={share.girl_mode} followupsEnabled />
+                      : msg.content && <RenderedMarkdown text={msg.content} girlMode={share.girl_mode} />
                     }
                   </div>
                 </div>

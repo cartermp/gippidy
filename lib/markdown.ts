@@ -33,11 +33,19 @@ marked.use({
   },
 });
 
-export function renderMarkdown(text: string): string {
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+export function renderMarkdown(text: string, copyLabel = '[COPY]'): string {
   const html = marked.parse(text, { async: false }) as string;
   // Wrap each <pre> in a .code-block and inject a [COPY] button
+  const safeCopyLabel = escapeHtml(copyLabel);
   return html
     .replace(/<pre>/g,
-      `<div class="code-block"><button class="copy-btn" type="button" data-copy-code>[COPY]</button><pre>`)
+      `<div class="code-block"><button class="copy-btn" type="button" data-copy-code>${safeCopyLabel}</button><pre>`)
     .replace(/<\/pre>/g, '</pre></div>');
 }

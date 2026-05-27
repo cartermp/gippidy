@@ -396,8 +396,8 @@ test('followup UI wiring hides XML in assistant messages and submits the selecte
     'RenderedMarkdown should explicitly opt into followup parsing for assistant messages',
   );
   assert.ok(
-    renderedMarkdownSource.includes('const preferClientRender = followupsEnabled && text !== undefined;'),
-    'followup rendering should prefer client-side markdown from raw text when followups are enabled',
+    renderedMarkdownSource.includes('const preferClientRender = text !== undefined && (followupsEnabled || girlMode);'),
+    'followup rendering should prefer client-side markdown from raw text when followups are enabled, and also when Girl Mode needs different UI labels',
   );
   assert.ok(
     css.includes('.followup-button'),
@@ -465,8 +465,8 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
       source.includes('chatStateVersionRef.current += 1;') &&
       source.includes('abortControllerRef.current?.abort();') &&
       source.includes('<a className="logo" href="/" onClick={e => { e.preventDefault(); startFreshChat(); }}>GIPPIDY</a>') &&
-      source.includes('<button onClick={startFreshChat}>[CLEAR]</button>'),
-    'the logo and [CLEAR] should use the same fresh-chat path so explicit new-chat actions clear persisted selection and invalidate stale in-flight work',
+      source.includes("<button onClick={startFreshChat}>{buttonLabel('CLEAR')}</button>"),
+    'the logo and clear action should use the same fresh-chat path so explicit new-chat actions clear persisted selection and invalidate stale in-flight work',
   );
   assert.ok(
     source.includes("logClientEvent('history.restore_fetch_failed'"),
@@ -955,7 +955,7 @@ test('privacy boundaries keep normal chats encrypted and make sharing an explici
   );
   assert.ok(
     pageSource.includes('{messages.length > 0 && !streaming && (') &&
-      pageSource.includes('<button onClick={handleShare}>{shareLabel}</button>'),
+      pageSource.includes("<button onClick={handleShare}>{buttonLabel(shareLabel)}</button>"),
     'sharing should remain an explicit user action from an existing chat, not an automatic side effect',
   );
   assert.ok(
@@ -1261,6 +1261,38 @@ test('Girl Mode defaults the system prompt to the chatty bestie preset', () => {
   assert.ok(
     source.includes('IF AND ONLY IF you suggest follow-up topics for conversation'),
     'the default system prompts should instruct the model to emit followups XML only when suggesting follow-up topics',
+  );
+});
+
+test('Girl Mode uses friendlier UI labels without bracketed button chrome', () => {
+  const pageSource = readFileSync(join(import.meta.dirname, '../app/page.tsx'), 'utf8');
+  const sharePageSource = readFileSync(join(import.meta.dirname, '../app/share/[id]/page.tsx'), 'utf8');
+  const forkButtonSource = readFileSync(join(import.meta.dirname, '../app/share/[id]/fork-button.tsx'), 'utf8');
+  const markdownSource = readFileSync(join(import.meta.dirname, '../app/rendered-markdown.tsx'), 'utf8');
+  const helperSource = readFileSync(join(import.meta.dirname, '../lib/ui-labels.ts'), 'utf8');
+
+  assert.ok(
+    helperSource.includes("return girlMode ? label : `[${label}]`;") &&
+      helperSource.includes("if (girlMode) return role === 'assistant' ? 'Gippidy' : 'You';"),
+    'shared label helpers should remove bracket chrome in Girl Mode and rename message labels to You/Gippidy',
+  );
+  assert.ok(
+    pageSource.includes("const buttonLabel = (label: string) => formatUiButtonLabel(label, girlMode);") &&
+      pageSource.includes('{buttonLabel(\'SETTINGS\')}') &&
+      pageSource.includes('{buttonLabel(\'SEND\')}') &&
+      pageSource.includes('{getMessageLabel(msg.role, girlMode)}'),
+    'the live chat UI should route button text and message labels through the Girl Mode label helpers',
+  );
+  assert.ok(
+    markdownSource.includes("const copyLabel = formatUiButtonLabel('COPY', girlMode);") &&
+      markdownSource.includes("const copiedLabel = formatUiButtonLabel('COPIED!', girlMode);"),
+    'markdown code-copy buttons should also drop bracketed labels in Girl Mode',
+  );
+  assert.ok(
+    sharePageSource.includes("formatUiButtonLabel('BACK', share.girl_mode)") &&
+      sharePageSource.includes("getMessageLabel(msg.role, share.girl_mode)") &&
+      forkButtonSource.includes("formatUiButtonLabel('FORK — CONTINUE', girlMode)"),
+    'shared chat views should inherit the same Girl Mode button and message-label copy',
   );
 });
 
