@@ -1033,6 +1033,21 @@ test('mobile header actions move onto their own wrapped row before they overflow
   );
 });
 
+test('markdown content spacing stays tight around paragraphs and lists', () => {
+  const cssSource = readFileSync(join(import.meta.dirname, '../app/globals.css'), 'utf8');
+  assert.ok(
+    cssSource.includes('.content {\n  word-break: break-word;') &&
+      !cssSource.includes('.content {\n  white-space: pre-wrap;'),
+    'the outer markdown content wrapper should not preserve raw whitespace between block elements',
+  );
+  assert.ok(
+    cssSource.includes('.content li > p { margin: 0; }') &&
+      cssSource.includes('.content ul { margin: 0.3em 0 0.5em 0; padding-left: 1.5em; }') &&
+      cssSource.includes('.content ol { margin: 0.3em 0 0.5em 0; padding-left: 2.5em; }'),
+    'lists should use tighter margins and remove paragraph spacing inside list items',
+  );
+});
+
 // ── settings validation ────────────────────────────────────────────────────────
 
 test('validateSettingsRequest: validates and defaults girlMode and font', () => {
