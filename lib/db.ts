@@ -5,9 +5,7 @@ let pool: Pool | null = null;
 function getConnectionString(): string {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
-  return databaseUrl.includes('sslmode=')
-    ? databaseUrl.replace(/sslmode=[^&]+/, 'sslmode=verify-full')
-    : `${databaseUrl}${databaseUrl.includes('?') ? '&' : '?'}sslmode=verify-full`;
+  return databaseUrl;
 }
 
 function getPool(): Pool {
