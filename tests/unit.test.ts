@@ -445,7 +445,7 @@ test('history-loaded chats persist across refreshes and clear correctly', () => 
   );
   assert.ok(
     source.includes('setHistoryOpeningId(item.id);') &&
-      source.includes('const restored = await fetchHistoryItem(item.id);'),
+      source.includes('const restored = await fetchHistoryItem(item.id, item.source);'),
     'history drawer selection should fetch and decrypt the selected chat on demand instead of relying on the list payload',
   );
   assert.ok(

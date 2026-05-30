@@ -17,6 +17,7 @@ type PendingPdf  = Pdf;
 const KEY_WARNED   = 'gippidy-key-warned';
 const ACTIVE_HISTORY_CHAT_KEY = 'gippidy-active-history-chat';
 const HISTORY_PREVIEW_CACHE_KEY = 'gippidy-history-preview-cache';
+const LOCAL_HISTORY_STORAGE_KEY = 'gippidy-local-history-v1';
 const GIRL_MODE_ATTR = 'data-girl-mode';
 const STREAM_MARKDOWN_INTERVAL_MS = 120;
 const FOLLOWUPS_XML_SYSTEM_PROMPT = 'IF AND ONLY IF you suggest follow-up topics for conversation, wrap the text of those topics in a field called <followups>, with each individual topic wrapped in <followup> tags.';
@@ -32,9 +33,10 @@ const GIRL_MODE_DEFAULT_SYSTEM_PROMPT = [
   FOLLOWUPS_XML_SYSTEM_PROMPT,
 ].join(' ');
 
+type HistorySource = 'cloud' | 'local';
 type HistoryPayload = { messages: Message[]; model: string; systemPrompt: string; title: string };
-type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string };
-type HistoryPreview = { id: string; title: string; updatedAt: string };
+type HistoryItem = { id: string; title: string; updatedAt: string; messages: Message[]; model: string; systemPrompt: string; source: HistorySource };
+type HistoryPreview = { id: string; title: string; updatedAt: string; source: HistorySource };
 type HistoryPreviewCacheEntry = { title: string; updatedAt: string };
 type HistoryPreviewCache = Record<string, HistoryPreviewCacheEntry>;
 type HistoryListRow = {
@@ -46,6 +48,14 @@ type HistoryListRow = {
   ciphertext?: string | null;
 };
 type HistoryRow = { id: string; iv: string; ciphertext: string; updated_at: string };
+type LocalHistoryRow = {
+  id: string;
+  iv: string;
+  ciphertext: string;
+  titleIv?: string;
+  titleCiphertext?: string;
+  updatedAt: string;
+};
 type HistoryRestoreResult =
   | { kind: 'ok'; item: HistoryItem }
   | { kind: 'missing' }
@@ -127,6 +137,88 @@ function writeHistoryPreviewCache(cache: HistoryPreviewCache) {
   try {
     sessionStorage.setItem(HISTORY_PREVIEW_CACHE_KEY, JSON.stringify(cache));
   } catch {}
+}
+
+function compareHistoryUpdatedAtDesc(a: { updatedAt: string }, b: { updatedAt: string }): number {
+  return b.updatedAt.localeCompare(a.updatedAt);
+}
+
+function readLocalHistoryRows(): LocalHistoryRow[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const rows: LocalHistoryRow[] = [];
+    for (const row of parsed) {
+      if (!row || typeof row !== 'object') continue;
+      const candidate = row as Record<string, unknown>;
+      if (
+        typeof candidate.id !== 'string' ||
+        typeof candidate.iv !== 'string' ||
+        typeof candidate.ciphertext !== 'string' ||
+        typeof candidate.updatedAt !== 'string'
+      ) continue;
+      const next: LocalHistoryRow = {
+        id: candidate.id,
+        iv: candidate.iv,
+        ciphertext: candidate.ciphertext,
+        updatedAt: candidate.updatedAt,
+      };
+      if (typeof candidate.titleIv === 'string') next.titleIv = candidate.titleIv;
+      if (typeof candidate.titleCiphertext === 'string') next.titleCiphertext = candidate.titleCiphertext;
+      rows.push(next);
+    }
+    rows.sort(compareHistoryUpdatedAtDesc);
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalHistoryRows(rows: LocalHistoryRow[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(LOCAL_HISTORY_STORAGE_KEY, JSON.stringify(rows));
+  } catch {}
+}
+
+function upsertLocalHistoryRow(input: {
+  id: string | null;
+  iv: string;
+  ciphertext: string;
+  titleIv: string;
+  titleCiphertext: string;
+}): string {
+  const rows = readLocalHistoryRows();
+  const now = new Date().toISOString();
+  if (input.id) {
+    const index = rows.findIndex(row => row.id === input.id);
+    if (index !== -1) {
+      rows[index] = { ...rows[index], iv: input.iv, ciphertext: input.ciphertext, titleIv: input.titleIv, titleCiphertext: input.titleCiphertext, updatedAt: now };
+      rows.sort(compareHistoryUpdatedAtDesc);
+      writeLocalHistoryRows(rows);
+      return input.id;
+    }
+  }
+  const id = `local-${crypto.randomUUID()}`;
+  rows.unshift({ id, iv: input.iv, ciphertext: input.ciphertext, titleIv: input.titleIv, titleCiphertext: input.titleCiphertext, updatedAt: now });
+  rows.sort(compareHistoryUpdatedAtDesc);
+  writeLocalHistoryRows(rows);
+  return id;
+}
+
+function getLocalHistoryRow(id: string): LocalHistoryRow | null {
+  return readLocalHistoryRows().find(row => row.id === id) ?? null;
+}
+
+function deleteLocalHistoryRow(id: string): boolean {
+  const rows = readLocalHistoryRows();
+  const nextRows = rows.filter(row => row.id !== id);
+  if (nextRows.length === rows.length) return false;
+  writeLocalHistoryRows(nextRows);
+  return true;
 }
 
 function setGirlModeDom(enabled: boolean) {
@@ -486,7 +578,6 @@ export default function Home() {
 
   const waitForHistorySaveReady = async (): Promise<CryptoKey | null> => {
     if (!initialSettingsLoadedRef.current || !cryptoKeyRef.current) await keyReadyRef.current;
-    if (!saveHistoryRef.current) return null;
     const key = cryptoKeyRef.current;
     if (!key) {
       logClientEvent('history.save_skipped_no_key', 'warn', {
@@ -528,14 +619,7 @@ export default function Home() {
     historyPreviewPromiseRef.current = null;
   };
 
-  const fetchHistoryItems = async (): Promise<HistoryPreview[] | null> => {
-    const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
-    await Promise.race([keyReadyRef.current, keyTimeout]);
-    const key = cryptoKeyRef.current;
-    if (!key) {
-      logClientEvent('history.key_unavailable', 'error');
-      return null;
-    }
+  const fetchCloudHistoryItems = async (key: CryptoKey): Promise<HistoryPreview[] | null> => {
     const res = await fetch('/api/history?titles=1');
     if (!res.ok) {
       logClientEvent('history.fetch_failed', 'error', {
@@ -552,12 +636,12 @@ export default function Home() {
     await Promise.allSettled(rows.map(async (row, i) => {
       const cached = historyPreviewCacheRef.current[row.id];
       if (cached && cached.updatedAt === row.updated_at) {
-        ordered[i] = { id: row.id, updatedAt: row.updated_at, title: cached.title };
+        ordered[i] = { id: row.id, updatedAt: row.updated_at, title: cached.title, source: 'cloud' };
         return;
       }
       try {
         const title = await decryptHistoryTitle(key, row);
-        ordered[i] = { id: row.id, updatedAt: row.updated_at, title };
+        ordered[i] = { id: row.id, updatedAt: row.updated_at, title, source: 'cloud' };
       } catch {
         failed++;
         if (!firstFailedId) firstFailedId = row.id;
@@ -566,6 +650,46 @@ export default function Home() {
     const items = ordered.filter((item): item is HistoryPreview => Boolean(item));
     if (failed) logClientEvent('history.decrypt_failed', 'warn', { failed, total: rows.length, firstFailedId });
     return items;
+  };
+
+  const fetchLocalHistoryItems = async (key: CryptoKey): Promise<HistoryPreview[]> => {
+    const rows = readLocalHistoryRows();
+    const ordered = Array<HistoryPreview | null>(rows.length).fill(null);
+    let failed = 0;
+    await Promise.allSettled(rows.map(async (row, i) => {
+      try {
+        let title = 'Untitled';
+        if (row.titleIv && row.titleCiphertext) {
+          title = normalizeHistoryTitle(await decrypt<string>(key, row.titleIv, row.titleCiphertext));
+        } else {
+          const payload = await decryptHistoryPayload(key, { iv: row.iv, ciphertext: row.ciphertext });
+          title = normalizeHistoryTitle(payload.title);
+        }
+        ordered[i] = { id: row.id, updatedAt: row.updatedAt, title, source: 'local' };
+      } catch {
+        failed++;
+      }
+    }));
+    if (failed) logClientEvent('history.local_decrypt_failed', 'warn', { failed, total: rows.length });
+    return ordered.filter((item): item is HistoryPreview => Boolean(item));
+  };
+
+  const fetchHistoryItems = async (): Promise<HistoryPreview[] | null> => {
+    const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
+    await Promise.race([keyReadyRef.current, keyTimeout]);
+    const key = cryptoKeyRef.current;
+    if (!key) {
+      logClientEvent('history.key_unavailable', 'error');
+      return null;
+    }
+    const [cloudItems, localItems] = await Promise.all([
+      fetchCloudHistoryItems(key),
+      fetchLocalHistoryItems(key),
+    ]);
+    if (!cloudItems) {
+      return localItems.sort(compareHistoryUpdatedAtDesc);
+    }
+    return [...cloudItems, ...localItems].sort(compareHistoryUpdatedAtDesc);
   };
 
   const getHistoryItems = async (): Promise<HistoryPreview[] | null> => {
@@ -598,14 +722,7 @@ export default function Home() {
     }, 0);
   };
 
-  const fetchHistoryItem = async (id: string): Promise<HistoryRestoreResult> => {
-    const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
-    await Promise.race([keyReadyRef.current, keyTimeout]);
-    const key = cryptoKeyRef.current;
-    if (!key) {
-      logClientEvent('history.key_unavailable', 'error', { id });
-      return { kind: 'error' };
-    }
+  const fetchCloudHistoryItem = async (id: string, key: CryptoKey): Promise<HistoryRestoreResult> => {
     try {
       const res = await fetch(`/api/history/${encodeURIComponent(id)}`);
       if (res.status === 404) {
@@ -626,7 +743,7 @@ export default function Home() {
       const row = await res.json() as HistoryRow;
       try {
         const data = await decryptHistoryPayload(key, row);
-        return { kind: 'ok', item: { id: row.id, updatedAt: row.updated_at, ...data, title: normalizeHistoryTitle(data.title) } };
+        return { kind: 'ok', item: { id: row.id, updatedAt: row.updated_at, ...data, title: normalizeHistoryTitle(data.title), source: 'cloud' } };
       } catch {
         logClientEvent('history.restore_decrypt_failed', 'warn', { id });
         return { kind: 'error' };
@@ -637,6 +754,90 @@ export default function Home() {
         ...getClientErrorDetails(error),
       });
       return { kind: 'error' };
+    }
+  };
+
+  const fetchLocalHistoryItem = async (id: string, key: CryptoKey): Promise<HistoryRestoreResult> => {
+    const row = getLocalHistoryRow(id);
+    if (!row) return { kind: 'missing' };
+    try {
+      const data = await decryptHistoryPayload(key, { iv: row.iv, ciphertext: row.ciphertext });
+      return {
+        kind: 'ok',
+        item: {
+          id: row.id,
+          updatedAt: row.updatedAt,
+          ...data,
+          title: normalizeHistoryTitle(data.title),
+          source: 'local',
+        },
+      };
+    } catch {
+      logClientEvent('history.restore_local_decrypt_failed', 'warn', { id });
+      return { kind: 'error' };
+    }
+  };
+
+  const fetchHistoryItem = async (id: string, source: HistorySource | null = null): Promise<HistoryRestoreResult> => {
+    const keyTimeout = new Promise<void>(resolve => setTimeout(resolve, 5000));
+    await Promise.race([keyReadyRef.current, keyTimeout]);
+    const key = cryptoKeyRef.current;
+    if (!key) {
+      logClientEvent('history.key_unavailable', 'error', { id });
+      return { kind: 'error' };
+    }
+    if (source === 'local') return fetchLocalHistoryItem(id, key);
+    if (source === 'cloud') return fetchCloudHistoryItem(id, key);
+    const local = await fetchLocalHistoryItem(id, key);
+    if (local.kind !== 'missing') return local;
+    return fetchCloudHistoryItem(id, key);
+  };
+
+  const syncLocalHistoryToCloud = async () => {
+    const rows = readLocalHistoryRows();
+    if (rows.length === 0) return;
+    const remaining: LocalHistoryRow[] = [];
+
+    for (const row of rows) {
+      const body = JSON.stringify({
+        iv: row.iv,
+        ciphertext: row.ciphertext,
+        ...(row.titleIv && row.titleCiphertext ? { titleIv: row.titleIv, titleCiphertext: row.titleCiphertext } : {}),
+      });
+      try {
+        const res = await fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+        if (!res.ok) {
+          logClientEvent('history.local_sync_failed', 'warn', {
+            id: row.id,
+            status: res.status,
+            requestId: res.headers.get('x-request-id'),
+          });
+          remaining.push(row);
+          continue;
+        }
+        const { id } = await res.json() as { id: string };
+        if (chatIdRef.current === row.id) {
+          chatIdRef.current = id;
+          rememberActiveHistoryChat(id);
+        }
+      } catch (error) {
+        logClientEvent('history.local_sync_failed', 'error', {
+          id: row.id,
+          ...getClientErrorDetails(error),
+        });
+        remaining.push(row);
+      }
+    }
+
+    writeLocalHistoryRows(remaining);
+    invalidateHistoryPreviewItems();
+    prewarmHistoryItems();
+    if (showHistory) {
+      void loadHistory();
     }
   };
 
@@ -701,6 +902,9 @@ export default function Home() {
         if (jwk) {
           // New key (or migrated from localStorage) — save to server so all deployments use it
           persistSettings({ keyJwk: jwk }, true);
+        }
+        if (nextSaveHistory) {
+          void syncLocalHistoryToCloud();
         }
         const restoreId = pendingStartupHistoryRestoreRef.current;
         if (!restoredFork && restoreId) {
@@ -835,6 +1039,7 @@ export default function Home() {
   };
 
   const handleToggleSaveHistory = (val: boolean) => {
+    const wasEnabled = saveHistoryRef.current;
     saveHistoryRef.current = val;
     setSaveHistory(val);
     rememberPendingSettings({ saveHistory: val });
@@ -843,6 +1048,9 @@ export default function Home() {
       localStorage.setItem(KEY_WARNED, '1');
     }
     persistSettings({ saveHistory: val }, true);
+    if (val && !wasEnabled) {
+      void syncLocalHistoryToCloud();
+    }
   };
 
   const handleToggleGirlMode = (val: boolean) => {
@@ -889,12 +1097,16 @@ export default function Home() {
     cancelPendingStartupHistoryRestore();
     setHistoryOpeningId(item.id);
     try {
-      const restored = await fetchHistoryItem(item.id);
+      const restored = await fetchHistoryItem(item.id, item.source);
       if (restored.kind === 'ok') {
         applyLoadedChat(restored.item);
         setShowHistory(false);
       } else if (restored.kind === 'missing') {
-        rememberActiveHistoryChat(null);
+        if (item.source === 'local') {
+          deleteLocalHistoryRow(item.id);
+        } else {
+          rememberActiveHistoryChat(null);
+        }
         setHistoryItems(items => items.filter(i => i.id !== item.id));
       }
     } finally {
@@ -902,22 +1114,26 @@ export default function Home() {
     }
   };
 
-  const handleDeleteChat = async (id: string) => {
-    const res = await fetch(`/api/history/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      logClientEvent('history.delete_failed', 'warn', {
-        status: res.status,
-        requestId: res.headers.get('x-request-id'),
-      });
-      return;
+  const handleDeleteChat = async (item: HistoryPreview) => {
+    if (item.source === 'local') {
+      deleteLocalHistoryRow(item.id);
+    } else {
+      const res = await fetch(`/api/history/${item.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        logClientEvent('history.delete_failed', 'warn', {
+          status: res.status,
+          requestId: res.headers.get('x-request-id'),
+        });
+        return;
+      }
     }
-    const nextHistoryItems = (historyPreviewItemsRef.current ?? historyItems).filter(item => item.id !== id);
+    const nextHistoryItems = (historyPreviewItemsRef.current ?? historyItems).filter(existing => existing.id !== item.id || existing.source !== item.source);
     invalidateHistoryPreviewItems();
-    historyPreviewItemsRef.current = nextHistoryItems;
-    dropHistoryPreviewCacheEntry(id);
+    historyPreviewItemsRef.current = nextHistoryItems.sort(compareHistoryUpdatedAtDesc);
+    if (item.source === 'cloud') dropHistoryPreviewCacheEntry(item.id);
     storeHistoryPreviewCache(nextHistoryItems);
     setHistoryItems(nextHistoryItems);
-    if (chatIdRef.current === id) {
+    if (chatIdRef.current === item.id) {
       chatIdRef.current = null;
       rememberActiveHistoryChat(null);
     }
@@ -1040,33 +1256,36 @@ export default function Home() {
           const ciphertextBytes = Math.round((ciphertext.length ?? 0) * 0.75);
           const titleCiphertextBytes = Math.round((titleCiphertext.length ?? 0) * 0.75);
           const currentHistoryId = chatIdRef.current;
+          const saveToCloud = saveHistoryRef.current;
           const body = JSON.stringify(
-            currentHistoryId
+            saveToCloud && currentHistoryId
               ? { id: currentHistoryId, iv, ciphertext, titleIv, titleCiphertext }
               : { iv, ciphertext, titleIv, titleCiphertext },
           );
           const bodyBytes = new TextEncoder().encode(body).length;
-          if (
-            bodyBytes > LIMITS.historyBodyBytes ||
-            ciphertextBytes > LIMITS.maxCiphertextBytes ||
-            titleCiphertextBytes > LIMITS.maxCiphertextBytes
-          ) {
-            logClientEvent('history.save_too_large', 'warn', {
-              id: currentHistoryId,
-              msgs: toSave.length,
-              bodyBytes,
-              maxBodyBytes: LIMITS.historyBodyBytes,
-              ciphertextBytes,
-              maxCiphertextBytes: LIMITS.maxCiphertextBytes,
-              titleCiphertextBytes,
+          let id: string;
+          if (saveToCloud) {
+            if (
+              bodyBytes > LIMITS.historyBodyBytes ||
+              ciphertextBytes > LIMITS.maxCiphertextBytes ||
+              titleCiphertextBytes > LIMITS.maxCiphertextBytes
+            ) {
+              logClientEvent('history.save_too_large', 'warn', {
+                id: currentHistoryId,
+                msgs: toSave.length,
+                bodyBytes,
+                maxBodyBytes: LIMITS.historyBodyBytes,
+                ciphertextBytes,
+                maxCiphertextBytes: LIMITS.maxCiphertextBytes,
+                titleCiphertextBytes,
+              });
+              return;
+            }
+            const res = await fetch('/api/history', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body,
             });
-            return;
-          }
-          const res = await fetch('/api/history', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body,
-          });
             if (!res.ok) {
               const error = (await res.text()).slice(0, LIMITS.maxClientEventValueChars);
               logClientEvent('history.save_failed', 'warn', {
@@ -1079,9 +1298,18 @@ export default function Home() {
                 titleCiphertextBytes,
                 error,
               });
-            return;
+              return;
+            }
+            ({ id } = await res.json());
+          } else {
+            id = upsertLocalHistoryRow({
+              id: currentHistoryId?.startsWith('local-') ? currentHistoryId : null,
+              iv,
+              ciphertext,
+              titleIv,
+              titleCiphertext,
+            });
           }
-          const { id } = await res.json();
           if (chatStateVersionRef.current !== chatStateVersion || chatIdRef.current !== currentHistoryId) return;
           chatIdRef.current = id;
           rememberActiveHistoryChat(id);
@@ -1416,13 +1644,17 @@ export default function Home() {
                   return <div className="empty">no matches</div>;
                 }
                 return filtered.map(item => (
-                  <div key={item.id} className="history-item" onClick={() => { void handleLoadChat(item); }}>
+                  <div key={`${item.source}:${item.id}`} className="history-item" onClick={() => { void handleLoadChat(item); }}>
                     <span className="history-date">{item.updatedAt.slice(0, 10)}</span>
-                    <span className="history-title">{historyOpeningId === item.id ? `${item.title} [OPENING...]` : item.title}</span>
+                    <span className="history-title">
+                      {historyOpeningId === item.id
+                        ? `${item.title}${item.source === 'local' ? ' [local]' : ''} [OPENING...]`
+                        : `${item.title}${item.source === 'local' ? ' [local]' : ''}`}
+                    </span>
                     <button
                       type="button"
                       className="history-delete"
-                      onClick={e => { e.stopPropagation(); handleDeleteChat(item.id); }}
+                      onClick={e => { e.stopPropagation(); void handleDeleteChat(item); }}
                     >×</button>
                   </div>
                 ));
