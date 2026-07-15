@@ -1,5 +1,5 @@
 export const MODELS = [
-  { id: 'ggpt-5.6-terra',                label: 'GPT-5.6',           provider: 'openai'    },
+  { id: 'gpt-5.6-terra',                label: 'GPT-5.6',           provider: 'openai'    },
   { id: 'claude-opus-4-6',        label: 'Claude Opus 4.6',   provider: 'anthropic' },
   { id: 'claude-sonnet-4-6',      label: 'Claude Sonnet 4.6', provider: 'anthropic' },
   { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro',    provider: 'google'    },
